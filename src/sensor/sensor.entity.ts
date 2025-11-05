@@ -1,16 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, IntegerType } from 'typeorm';
 
 @Entity('sensor_readings')
 export class SensorReading {
   @PrimaryGeneratedColumn()
-  id: number;
-
-  @Column()
   sensor_id: number;
 
-  @Column('double precision')
+  @Column({ name: 'id', type: 'integer', nullable: true })
+  id: number;
+
+  @Column({ type: 'float', nullable: true })
   value: number;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  timestamp: Date;
+  @CreateDateColumn({ name: 'createdAt', type: 'timestamp' })
+  createdAt: Date;
 }

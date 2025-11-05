@@ -3,10 +3,10 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeor
 @Entity('sensor_readings')
 export class SensorReading {
   @PrimaryGeneratedColumn()
-  id: number;
+  sensor_id: number;
 
   @Column()
-  sensor_id: number;
+  id: number;
 
   @Column('double precision')
   value: number;

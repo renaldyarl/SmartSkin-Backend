@@ -14,8 +14,8 @@ export class InitMigration1760171876792 implements MigrationInterface {
         if (!tableExists[0].exists) {
             await queryRunner.query(`
                 CREATE TABLE sensor_readings (
-                    id SERIAL PRIMARY KEY,
-                    sensor_id INT NOT NULL,
+                    sensor_id SERIAL PRIMARY KEY,
+                    id INT NOT NULL,
                     value FLOAT NOT NULL,
                     created_at TIMESTAMP DEFAULT NOW()
                 );
