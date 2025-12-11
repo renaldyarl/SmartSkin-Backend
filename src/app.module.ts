@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SensorReading } from './sensor/sensor.entity';
+import { Sensor } from './sensor/sensor.entity';
 import { SensorModule } from './sensor/sensor.module';
+import { SensorType } from './sensor/sensor-type.entity';
+import { Location } from './sensor/location.entity';
+import { SensorReading } from './sensor-reading/sensor-reading.entity';
+import { SensorReadingModule } from "./sensor-reading/sensor-reading.module";
 
 @Module({
   imports: [
@@ -11,11 +15,13 @@ import { SensorModule } from './sensor/sensor.module';
       port: 5432,
       username: 'postgres',
       password: '1', 
-      database: 'smart_skin',
-      entities: [SensorReading],
-      synchronize: true,         // auto sync table (hanya untuk dev)
+      database: 'hardware',
+      entities: [Sensor, SensorType, Location, SensorReading],
+      synchronize: false,
+      migrations: ['dist/migrations/*.js'],
+      migrationsRun: true,
     }),
-    SensorModule,
+    SensorModule,SensorReadingModule,
   ],
 })
 export class AppModule {}

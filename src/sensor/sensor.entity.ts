@@ -1,16 +1,28 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, IntegerType } from 'typeorm';
+import { 
+  Entity, 
+  PrimaryGeneratedColumn, 
+  ManyToOne, 
+  OneToMany, 
+  JoinColumn 
+} from "typeorm";
 
-@Entity('sensor_readings')
-export class SensorReading {
+import { SensorType } from "./sensor-type.entity";
+import { Location } from "./location.entity";
+import { SensorReading } from "../sensor-reading/sensor-reading.entity";
+
+@Entity('sensor')
+export class Sensor {
   @PrimaryGeneratedColumn()
-  sensor_id: number;
-
-  @Column({ name: 'id', type: 'integer', nullable: true })
   id: number;
 
-  @Column({ type: 'float', nullable: true })
-  value: number;
+  @ManyToOne(() => SensorType, (sensorType) => sensorType.sensors)
+  @JoinColumn({ name: 'sensor_type_id' })   // FIXED
+  sensorType: SensorType;
 
-  @CreateDateColumn({ name: 'createdAt', type: 'timestamp' })
-  createdAt: Date;
+  @ManyToOne(() => Location, (location) => location.sensors)
+  @JoinColumn({ name: 'location_id' })     
+  location: Location;
+
+  @OneToMany(() => SensorReading, (reading) => reading.sensor)
+  readings: SensorReading[];
 }

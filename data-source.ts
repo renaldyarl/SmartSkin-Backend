@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
-import { SensorReading } from './src/sensor/sensor.entity';
+import { Sensor } from './src/sensor/sensor.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -8,8 +8,8 @@ export const AppDataSource = new DataSource({
   port: 5432,
   username: 'postgres',
   password: '1',
-  database: 'smart_skin',
-  entities: [SensorReading],
+  database: 'hardware',
+  entities: [Sensor],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
 });
