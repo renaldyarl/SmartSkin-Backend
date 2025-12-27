@@ -1,40 +1,43 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Sensor } from './sensor.entity';
+import { Sensor } from '../sensor/sensor.entity';
 import { CreateSensorDto } from '../dto/create-sensor.dto';
+import { SensorType } from '../sensor/sensor-type.entity';
+import { Location } from '../location/location.entity';
 
 @Injectable()
 export class SensorService {
   constructor(
     @InjectRepository(Sensor)
-    private readonly sensorRepo: Repository<Sensor>,
+    private sensorRepository: Repository<Sensor>,
+    @InjectRepository(SensorType)
+    private sensorTypeRepository: Repository<SensorType>,
+    @InjectRepository(Location)
+    private locationRepository: Repository<Location>,
   ) {}
 
-  async create(dto: CreateSensorDto) {
-    const sensor = this.sensorRepo.create({
-      sensorType: { id: dto.sensorTypeId },
-      location: { id: dto.locationId },
+  async create(createDto: CreateSensorDto): Promise<Sensor> {
+    const sensorType = await this.sensorTypeRepository.findOne({
+      where: { id: createDto.sensorTypeId },
+    });
+    if (!sensorType) throw new NotFoundException('SensorType not found');
+
+    const location = await this.locationRepository.findOne({
+      where: { id: createDto.locationId },
+    });
+    if (!location) throw new NotFoundException('Location not found');
+
+    const sensor = this.sensorRepository.create({
+      externalId: createDto.externalId,
+      sensorType: sensorType,
+      location: location,
     });
 
-    return this.sensorRepo.save(sensor);
+    return this.sensorRepository.save(sensor);
   }
 
-  async findAll() {
-    return await this.sensorRepo.find({
-      relations: ['sensorType', 'location', 'readings'],
-    });
-  }
-
-  async findOne(id: number) {
-    return await this.sensorRepo.findOne({
-      where: { id },
-      relations: ['sensorType', 'location', 'readings'],
-    });
-  }
-
-  async delete(id: number) {
-    await this.sensorRepo.delete(id);
-    return { message: 'Sensor deleted' };
+  findAll() {
+    return this.sensorRepository.find({ relations: ['sensorType', 'location'] });
   }
 }

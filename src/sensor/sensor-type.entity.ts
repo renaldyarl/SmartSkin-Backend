@@ -1,15 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from "typeorm";
-import { Sensor } from "./sensor.entity";
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { Sensor } from '../sensor/sensor.entity';
 
 @Entity()
 export class SensorType {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
+  @Column({ length: 50 })
   name: string;
 
-  @Column({ nullable: true })
+  @Column({ length: 20 })
   unit: string;
 
   @OneToMany(() => Sensor, (sensor) => sensor.sensorType)
