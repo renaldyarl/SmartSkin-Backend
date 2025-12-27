@@ -1,52 +1,63 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SensorReading } from './sensor-reading.entity';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
+import { Sensor } from '../sensor/sensor.entity';
+import { Location } from '../location/location.entity';
+import { SensorType } from '../sensor/sensor-type.entity';
 
 @Injectable()
 export class SensorReadingService {
   constructor(
     @InjectRepository(SensorReading)
-    private readonly readingRepo: Repository<SensorReading>,
+    private sensorReadingRepository: Repository<SensorReading>,
+    @InjectRepository(Sensor)
+    private sensorRepository: Repository<Sensor>,
+    @InjectRepository(Location)
+    private locationRepository: Repository<Location>,
+    @InjectRepository(SensorType)
+    private sensorTypeRepository: Repository<SensorType>,
   ) {}
-  
-  async findAll() {
-    return await this.readingRepo.find({
-      relations: ['sensor'],
-      order: { timestamp: 'DESC' },
-    });
-  }
 
-  async create(dto: CreateSensorReadingDto) {
-    return await this.readingRepo.save({
-      sensor: { id: dto.sensorId },
+  async create(dto: CreateSensorReadingDto): Promise<SensorReading> {
+    const locationName = dto.location.replace(/_/g, ' '); // "right_arm" → "right arm"
+    const sensorTypeName = dto.sensorType;
+
+    const [location, sensorType] = await Promise.all([
+      this.locationRepository.findOne({ where: { name: locationName } }),
+      this.sensorTypeRepository.findOne({ where: { name: sensorTypeName } }),
+    ]);
+
+    if (!location)
+      throw new NotFoundException(`Location "${dto.location}" not found`);
+    if (!sensorType)
+      throw new NotFoundException(`Sensor type "${dto.sensorType}" not found`);
+
+    const sensor = await this.sensorRepository.findOne({
+      where: {
+        location: { id: location.id },
+        sensorType: { id: sensorType.id },
+      },
+    });
+
+    if (!sensor) {
+      throw new NotFoundException(
+        `Sensor not found for location "${dto.location}" and type "${dto.sensorType}"`,
+      );
+    }
+
+    const reading = this.sensorReadingRepository.create({
+      sensor,
       value: dto.value,
-      timestamp: new Date(),
     });
+
+    return this.sensorReadingRepository.save(reading);
   }
 
-  async getLatest(sensorId: number, limit = 50) {
-    return await this.readingRepo.find({
-      where: { sensor: { id: sensorId } },
-      order: { timestamp: 'DESC' },
-      take: limit,
-      relations: ['sensor'],
+  findAll() {
+    return this.sensorReadingRepository.find({
+      relations: ['sensor', 'sensor.sensorType', 'sensor.location'],
     });
-  }
-
-  async getChartData(sensorId: number, minutes = 30) {
-    return await this.readingRepo.query(
-      `
-      SELECT 
-        value,
-        timestamp
-      FROM sensor_reading
-      WHERE sensor_id = $1
-      AND timestamp >= NOW() - INTERVAL '${minutes} minutes'
-      ORDER BY timestamp ASC
-    `,
-      [sensorId],
-    );
   }
 }

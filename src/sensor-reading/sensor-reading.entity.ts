@@ -1,18 +1,12 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  ManyToOne,
-  JoinColumn,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Sensor } from '../sensor/sensor.entity';
 
-@Entity()
+@Entity('sensor_reading') 
 export class SensorReading {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => Sensor, (sensor) => sensor.readings)
+  @ManyToOne(() => Sensor, (sensor) => sensor.readings, { nullable: false })
   @JoinColumn({ name: 'sensor_id' })
   sensor: Sensor;
 
