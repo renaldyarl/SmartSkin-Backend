@@ -1,15 +1,19 @@
 import { DataSource } from 'typeorm';
-import { SensorReading } from './sensor-reading/sensor-reading.entity';
+import { Location } from './location/location.entity';
+import { SensorType } from './sensor/sensor-type.entity';
 import { Sensor } from './sensor/sensor.entity';
+import { SensorReading } from './sensor-reading/sensor-reading.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   host: 'localhost',
   port: 5432,
-  username: 'postgres',   
-  password: '1',   
-  database: 'hardware',
-  entities: [Sensor, SensorReading],
+  username: 'postgres',     
+  password: '1', 
+  database: 'hardware',     
+  entities: [Location, SensorType, Sensor, SensorReading],
   migrations: ['src/migrations/*.ts'],
-  synchronize: false, // penting! harus false kalau udah pakai migration
+  subscribers: [],
+  synchronize: false,
+  logging: false,
 });
