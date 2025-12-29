@@ -1,5 +1,4 @@
-// src/sensor-reading/dto/create-sensor-reading.dto.ts
-import { IsString, IsNumber, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsNotEmpty, Min, Max } from 'class-validator';
 
 export class CreateSensorReadingDto {
   @IsString()
@@ -9,6 +8,11 @@ export class CreateSensorReadingDto {
   @IsString()
   @IsNotEmpty()
   sensorType: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(2)
+  sensorNumber: number;
 
   @IsNumber()
   @IsNotEmpty()

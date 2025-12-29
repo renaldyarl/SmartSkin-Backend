@@ -21,29 +21,36 @@ export class SensorReadingService {
   ) {}
 
   async create(dto: CreateSensorReadingDto): Promise<SensorReading> {
-    const locationName = dto.location.replace(/_/g, ' '); // "right_arm" → "right arm"
+    // Normalisasi lokasi: "right_arm" → "right arm"
+    const locationName = dto.location.replace(/_/g, ' ');
     const sensorTypeName = dto.sensorType;
+    const sensorNumber = dto.sensorNumber;
 
+    // Cari lokasi & tipe sensor
     const [location, sensorType] = await Promise.all([
       this.locationRepository.findOne({ where: { name: locationName } }),
       this.sensorTypeRepository.findOne({ where: { name: sensorTypeName } }),
     ]);
 
-    if (!location)
+    if (!location) {
       throw new NotFoundException(`Location "${dto.location}" not found`);
-    if (!sensorType)
+    }
+    if (!sensorType) {
       throw new NotFoundException(`Sensor type "${dto.sensorType}" not found`);
+    }
 
+    // Cari sensor BERDASARKAN: lokasi + tipe + nomor sensor
     const sensor = await this.sensorRepository.findOne({
       where: {
         location: { id: location.id },
         sensorType: { id: sensorType.id },
+        externalId: sensorNumber, // 👈 Ini kuncinya!
       },
     });
 
     if (!sensor) {
       throw new NotFoundException(
-        `Sensor not found for location "${dto.location}" and type "${dto.sensorType}"`,
+        `Sensor not found for location "${dto.location}", type "${dto.sensorType}", and number ${sensorNumber}`,
       );
     }
 
