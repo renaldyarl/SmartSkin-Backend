@@ -1,4 +1,3 @@
-// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SensorModule } from './sensor/sensor.module';
@@ -7,7 +6,6 @@ import { Location } from './location/location.entity';
 import { SensorType } from './sensor/sensor-type.entity';
 import { Sensor } from './sensor/sensor.entity';
 import { SensorReading } from './sensor-reading/sensor-reading.entity';
-
 import { SeederModule } from './seeder/seeder.module';
 import { SeederService } from './seeder/seeder.service';
 

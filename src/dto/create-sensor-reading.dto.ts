@@ -11,7 +11,7 @@ export class CreateSensorReadingDto {
 
   @IsNumber()
   @Min(1)
-  @Max(2)
+  @Max(4)
   sensorNumber: number;
 
   @IsNumber()
