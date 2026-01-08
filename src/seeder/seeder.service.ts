@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Location } from '../location/location.entity';
-import { SensorType } from '../sensor/sensor-type.entity'; 
+import { SensorType } from '../sensor/sensor-type.entity';
 import { Sensor } from '../sensor/sensor.entity';
 
 @Injectable()
@@ -49,14 +49,24 @@ export class SeederService {
       savedSensorTypes.push(existing);
     }
 
+    const LOCATION_POINT_COUNT = {
+      'right arm': 2,   
+      'left arm': 2,    
+      'back': 4,        
+      'left leg': 3,    
+      'right leg': 3,   
+    };
+
     for (const loc of savedLocations) {
-      for (const type of savedSensorTypes) {
-        for (let sensorNumber = 1; sensorNumber <= 2; sensorNumber++) {
+      const pointCount = LOCATION_POINT_COUNT[loc.name];
+      
+      for (let point = 1; point <= pointCount; point++) {
+        for (const type of savedSensorTypes) {
           const existing = await this.sensorRepo.findOne({
             where: {
               location: { id: loc.id },
               sensorType: { id: type.id },
-              externalId: sensorNumber, 
+              externalId: point,
             },
           });
 
@@ -64,13 +74,13 @@ export class SeederService {
             await this.sensorRepo.save({
               location: loc,
               sensorType: type,
-              externalId: sensorNumber, 
+              externalId: point,
             });
           }
         }
       }
     }
 
-    console.log('✅ Seeder: 5 locations, 3 sensor types, 30 sensors created!');
+    console.log('✅ Seeder: 5 locations, 3 sensor types, 42 sensors created!');
   }
 }
