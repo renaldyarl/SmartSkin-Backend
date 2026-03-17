@@ -7,9 +7,9 @@ export class SensorReadingController {
   constructor(private readonly sensorReadingService: SensorReadingService) {}
 
   @Post()
-  @UsePipes(new ValidationPipe())
-  create(@Body() createDto: CreateSensorReadingDto) {
-    return this.sensorReadingService.create(createDto);
+  @UsePipes(new ValidationPipe({ transform: true }))
+  create(@Body() dto: CreateSensorReadingDto) {
+    return this.sensorReadingService.create(dto);
   }
 
   @Get()

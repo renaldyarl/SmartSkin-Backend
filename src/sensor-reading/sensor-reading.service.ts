@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SensorReading } from './sensor-reading.entity';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
 import { Sensor } from '../sensor/sensor.entity';
@@ -20,43 +20,70 @@ export class SensorReadingService {
     private sensorTypeRepository: Repository<SensorType>,
   ) {}
 
-  async create(dto: CreateSensorReadingDto): Promise<SensorReading> {
+  async create(
+    dto: CreateSensorReadingDto,
+  ): Promise<{ saved: number; location: string }> {
     const locationName = dto.location.replace(/_/g, ' ');
-    const sensorTypeName = dto.sensorType;
-    const sensorNumber = dto.sensorNumber;
 
-    const [location, sensorType] = await Promise.all([
-      this.locationRepository.findOne({ where: { name: locationName } }),
-      this.sensorTypeRepository.findOne({ where: { name: sensorTypeName } }),
-    ]);
-
+    // 1. Ambil location — 1 query
+    const location = await this.locationRepository.findOne({
+      where: { name: locationName },
+    });
     if (!location) {
       throw new NotFoundException(`Location "${dto.location}" not found`);
     }
-    if (!sensorType) {
-      throw new NotFoundException(`Sensor type "${dto.sensorType}" not found`);
+
+    // 2. Ambil semua unique sensorType sekaligus — 1 query
+    const uniqueSensorTypeNames = [
+      ...new Set(dto.readings.map((r) => r.sensorType)),
+    ];
+    const sensorTypes = await this.sensorTypeRepository.find({
+      where: { name: In(uniqueSensorTypeNames) },
+    });
+
+    const sensorTypeMap = new Map(sensorTypes.map((st) => [st.name, st]));
+    for (const name of uniqueSensorTypeNames) {
+      if (!sensorTypeMap.has(name)) {
+        throw new NotFoundException(`Sensor type "${name}" not found`);
+      }
     }
 
-    const sensor = await this.sensorRepository.findOne({
+    // 3. Ambil semua sensor yang relevan — 1 query
+    const sensorTypeIds = sensorTypes.map((st) => st.id);
+    const sensors = await this.sensorRepository.find({
       where: {
         location: { id: location.id },
-        sensorType: { id: sensorType.id },
-        externalId: sensorNumber, 
+        sensorType: { id: In(sensorTypeIds) },
       },
+      relations: ['sensorType'],
     });
 
-    if (!sensor) {
-      throw new NotFoundException(
-        `Sensor not found for location "${dto.location}", type "${dto.sensorType}", and number ${sensorNumber}`,
-      );
-    }
+    // Lookup map: "sensorTypeName-sensorNumber" -> Sensor
+    const sensorMap = new Map(
+      sensors.map((s) => [`${s.sensorType.name}-${s.externalId}`, s]),
+    );
 
-    const reading = this.sensorReadingRepository.create({
-      sensor,
-      value: dto.value,
+    // 4. Bangun semua reading entity
+    const readingEntities = dto.readings.map((item) => {
+      const key = `${item.sensorType}-${item.sensorNumber}`;
+      const sensor = sensorMap.get(key);
+
+      if (!sensor) {
+        throw new NotFoundException(
+          `Sensor not found for location "${dto.location}", type "${item.sensorType}", number ${item.sensorNumber}`,
+        );
+      }
+
+      return this.sensorReadingRepository.create({
+        sensor,
+        value: item.value,
+      });
     });
 
-    return this.sensorReadingRepository.save(reading);
+    // 5. Bulk insert — 1 query
+    await this.sensorReadingRepository.save(readingEntities);
+
+    return { saved: readingEntities.length, location: locationName };
   }
 
   findAll() {
