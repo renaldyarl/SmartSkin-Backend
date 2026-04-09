@@ -3,11 +3,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { SensorReading } from './sensor-reading.entity';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
+import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.dto';
 import { Sensor } from '../sensor/sensor.entity';
 import { Location } from '../location/location.entity';
 import { SensorType } from '../sensor/sensor-type.entity';
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
 import { PaginatedResponse } from '../dto/pagination-response.interface';
+import { SensorCacheService } from '../cache/sensor-cache.service';
 
 @Injectable()
 export class SensorReadingService {
@@ -20,6 +22,7 @@ export class SensorReadingService {
     private locationRepository: Repository<Location>,
     @InjectRepository(SensorType)
     private sensorTypeRepository: Repository<SensorType>,
+    private sensorCacheService: SensorCacheService,
   ) {}
 
   async create(
@@ -27,48 +30,32 @@ export class SensorReadingService {
   ): Promise<{ saved: number; location: string }> {
     const locationName = dto.location.replace(/_/g, ' ');
 
-    // 1. Ambil location — 1 query
-    const location = await this.locationRepository.findOne({
-      where: { name: locationName },
-    });
+    // OPTIMIZED: Use in-memory cache instead of DB query
+    const location = this.sensorCacheService.getLocation(locationName);
     if (!location) {
       throw new NotFoundException(`Location "${dto.location}" not found`);
     }
 
-    // 2. Ambil semua unique sensorType sekaligus — 1 query
+    // OPTIMIZED: Get unique sensor types and validate from cache
     const uniqueSensorTypeNames = [
       ...new Set(dto.readings.map((r) => r.sensorType)),
     ];
-    const sensorTypes = await this.sensorTypeRepository.find({
-      where: { name: In(uniqueSensorTypeNames) },
-    });
 
-    const sensorTypeMap = new Map(sensorTypes.map((st) => [st.name, st]));
+    // Validate all sensor types exist
     for (const name of uniqueSensorTypeNames) {
-      if (!sensorTypeMap.has(name)) {
+      const sensorType = this.sensorCacheService.getSensorType(name);
+      if (!sensorType) {
         throw new NotFoundException(`Sensor type "${name}" not found`);
       }
     }
 
-    // 3. Ambil semua sensor yang relevan — 1 query
-    const sensorTypeIds = sensorTypes.map((st) => st.id);
-    const sensors = await this.sensorRepository.find({
-      where: {
-        location: { id: location.id },
-        sensorType: { id: In(sensorTypeIds) },
-      },
-      relations: ['sensorType'],
-    });
-
-    // Lookup map: "sensorTypeName-sensorNumber" -> Sensor
-    const sensorMap = new Map(
-      sensors.map((s) => [`${s.sensorType.name}-${s.externalId}`, s]),
-    );
-
-    // 4. Bangun semua reading entity
+    // OPTIMIZED: Build reading entities using cache lookup
     const readingEntities = dto.readings.map((item) => {
-      const key = `${item.sensorType}-${item.sensorNumber}`;
-      const sensor = sensorMap.get(key);
+      const sensor = this.sensorCacheService.getSensor(
+        item.sensorType,
+        item.sensorNumber,
+        locationName,
+      );
 
       if (!sensor) {
         throw new NotFoundException(
@@ -76,16 +63,79 @@ export class SensorReadingService {
         );
       }
 
+      // Create sensor reference from cache
+      const sensorRef = this.sensorReadingRepository.create({
+        sensor: { id: sensor.id } as Sensor,
+        value: item.value,
+      });
+
+      return sensorRef;
+    });
+
+    // Bulk insert — 1 query
+    await this.sensorReadingRepository.save(readingEntities);
+
+    return { saved: readingEntities.length, location: locationName };
+  }
+
+  async batchCreate(
+    dto: BatchCreateSensorReadingDto,
+  ): Promise<{ saved: number; locations: string[] }> {
+    // OPTIMIZED: Use cache for all lookups - 0 DB queries for validation
+    const locationMap = new Map<string, number>(); // name -> id
+    const uniqueLocations = [
+      ...new Set(dto.readings.map((r) => r.location.replace(/_/g, ' '))),
+    ];
+
+    // Validate all locations from cache
+    for (const locationName of uniqueLocations) {
+      const location = this.sensorCacheService.getLocation(locationName);
+      if (!location) {
+        throw new NotFoundException(`Location "${locationName}" not found`);
+      }
+      locationMap.set(locationName, location.id);
+    }
+
+    // Validate all sensor types from cache
+    const uniqueSensorTypeNames = [
+      ...new Set(dto.readings.map((r) => r.sensorType)),
+    ];
+
+    for (const name of uniqueSensorTypeNames) {
+      const sensorType = this.sensorCacheService.getSensorType(name);
+      if (!sensorType) {
+        throw new NotFoundException(`Sensor type "${name}" not found`);
+      }
+    }
+
+    // Build all reading entities using cache
+    const readingEntities = dto.readings.map((item) => {
+      const locationName = item.location.replace(/_/g, ' ');
+      const sensor = this.sensorCacheService.getSensor(
+        item.sensorType,
+        item.sensorNumber,
+        locationName,
+      );
+
+      if (!sensor) {
+        throw new NotFoundException(
+          `Sensor not found for location "${item.location}", type "${item.sensorType}", number ${item.sensorNumber}`,
+        );
+      }
+
       return this.sensorReadingRepository.create({
-        sensor,
+        sensor: { id: sensor.id } as Sensor,
         value: item.value,
       });
     });
 
-    // 5. Bulk insert — 1 query
+    // Single bulk insert - 1 DB query for all 42 sensors
     await this.sensorReadingRepository.save(readingEntities);
 
-    return { saved: readingEntities.length, location: locationName };
+    return {
+      saved: readingEntities.length,
+      locations: uniqueLocations,
+    };
   }
 
   async findBySensorType(
@@ -151,22 +201,16 @@ export class SensorReadingService {
   }
 
   async getAvailableSensorTypes(): Promise<{ name: string; unit: string }[]> {
-    const sensorTypes = await this.sensorTypeRepository
-      .createQueryBuilder('sensorType')
-      .select(['sensorType.name', 'sensorType.unit'])
-      .getMany();
-
-    return sensorTypes;
+    // OPTIMIZED: Return from cache instead of DB query
+    return this.sensorCacheService.getAllSensorTypes();
   }
 
   async getReadingsBySensorType(
     sensorTypeName: string,
     query: PaginateSensorReadingQueryDto,
   ): Promise<PaginatedResponse<any>> {
-    // Validate sensor type exists
-    const sensorType = await this.sensorTypeRepository.findOne({
-      where: { name: sensorTypeName },
-    });
+    // OPTIMIZED: Validate sensor type from cache
+    const sensorType = this.sensorCacheService.getSensorType(sensorTypeName);
 
     if (!sensorType) {
       throw new NotFoundException(

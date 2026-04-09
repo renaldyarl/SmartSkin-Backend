@@ -6,16 +6,18 @@ import { Location } from '../location/location.entity';
 import { SensorReadingService } from './sensor-reading.service';
 import { SensorReadingController } from './sensor-reading.controller';
 import { SensorType } from '../sensor/sensor-type.entity';
+import { SensorCacheModule } from '../cache/sensor-cache.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       SensorReading,
       Sensor,
-      Location,     
-      SensorType,   
+      Location,
+      SensorType,
     ]),
     TypeOrmModule.forFeature([SensorReading, Sensor, Location]),
+    SensorCacheModule,
   ],
   controllers: [SensorReadingController],
   providers: [SensorReadingService],

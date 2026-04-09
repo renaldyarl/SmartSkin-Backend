@@ -10,11 +10,18 @@ import {
 } from '@nestjs/common';
 import { SensorReadingService } from './sensor-reading.service';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
+import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.dto';
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
 
 @Controller('sensor-reading')
 export class SensorReadingController {
   constructor(private readonly sensorReadingService: SensorReadingService) {}
+
+  @Post('batch')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  createBatch(@Body() dto: BatchCreateSensorReadingDto) {
+    return this.sensorReadingService.batchCreate(dto);
+  }
 
   @Post()
   @UsePipes(new ValidationPipe({ transform: true }))
