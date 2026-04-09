@@ -35,7 +35,7 @@ export class SeederService {
     }
 
     const sensorTypes = [
-      { name: 'humidity', unit: '°C' },
+      { name: 'temperature', unit: '°C' },
       { name: 'pressure', unit: 'kPa' },
       { name: 'vibration', unit: 'g' },
     ];
