@@ -1,15 +1,18 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
-import { Sensor } from './src/sensor/sensor.entity';
+import * as dotenv from 'dotenv';
 
-export const AppDataSource = new DataSource({
+dotenv.config();
+
+export default new DataSource({
   type: 'postgres',
-  host: 'localhost',
-  port: 5432,
-  username: 'postgres',
-  password: '1',
-  database: 'hardware',
-  entities: [Sensor],
+  host: process.env.DB_HOST || '127.0.0.1',
+  port: Number(process.env.DB_PORT) || 5432,
+  username: process.env.DB_USERNAME || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'postgres',
+  entities: ['src/**/*.entity.ts'],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
+  logging: process.env.DB_LOGGING === 'true',
 });
