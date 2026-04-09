@@ -154,7 +154,7 @@ Create sensor readings (bulk insert).
     },
     {
       "sensorType": "temperature",
-      "sensorNumber": 2,
+      "sensorNumber": 1,
       "value": 36.8
     }
   ]
