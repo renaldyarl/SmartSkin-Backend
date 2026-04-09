@@ -22,11 +22,6 @@ export class SensorReadingController {
     return this.sensorReadingService.create(dto);
   }
 
-  @Get()
-  findAll() {
-    return this.sensorReadingService.findAll();
-  }
-
   @Get('paginated')
   @UsePipes(new ValidationPipe({ transform: true }))
   findBySensorType(@Query() query: PaginateSensorReadingQueryDto) {

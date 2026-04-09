@@ -88,12 +88,6 @@ export class SensorReadingService {
     return { saved: readingEntities.length, location: locationName };
   }
 
-  findAll() {
-    return this.sensorReadingRepository.find({
-      relations: ['sensor', 'sensor.sensorType', 'sensor.location'],
-    });
-  }
-
   async findBySensorType(
     query: PaginateSensorReadingQueryDto,
   ): Promise<PaginatedResponse<any>> {
