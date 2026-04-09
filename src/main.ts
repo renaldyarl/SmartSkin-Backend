@@ -14,7 +14,7 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: 'http://ss.stas-rg.com',
+    origin: 'https://ss.stas-rg.com',
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   });
