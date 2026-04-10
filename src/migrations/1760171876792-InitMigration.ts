@@ -1,4 +1,3 @@
-  GNU nano 6.2                                                                                                                                                                 1760171876792 - InitMigration.ts
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class InitMigration1760171876792 implements MigrationInterface {
@@ -23,15 +22,13 @@ export class InitMigration1760171876792 implements MigrationInterface {
     await queryRunner.query(`
   CREATE TABLE sensor (
     id SERIAL PRIMARY KEY,
-    "externalId" VARCHAR(255),
     sensor_type_id INT NOT NULL,
     location_id INT,
+    external_id INT NOT NULL,
     CONSTRAINT fk_sensor_type FOREIGN KEY (sensor_type_id)
-      REFERENCES sensor_type(id)
-      ON DELETE CASCADE,
+      REFERENCES sensor_type(id) ON DELETE CASCADE,
     CONSTRAINT fk_sensor_location FOREIGN KEY (location_id)
-      REFERENCES location(id)
-      ON DELETE SET NULL
+      REFERENCES location(id) ON DELETE SET NULL
   );
 `);
 
@@ -42,24 +39,19 @@ export class InitMigration1760171876792 implements MigrationInterface {
     value DECIMAL(10,4) NOT NULL,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT fk_sensor_reading_sensor FOREIGN KEY (sensor_id)
-      REFERENCES sensor(id)
-      ON DELETE CASCADE
+      REFERENCES sensor(id) ON DELETE CASCADE
   );
 `);
 
-    await queryRunner.query(`
-  CREATE INDEX idx_sensor_reading_sensor_id ON sensor_reading(sensor_id);
-`);
-
-    await queryRunner.query(`
-  CREATE INDEX idx_sensor_reading_timestamp ON sensor_reading(timestamp);
-`);
-
+    await queryRunner.query(
+      `CREATE INDEX idx_sensor_reading_sensor_id ON sensor_reading(sensor_id)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX idx_sensor_reading_timestamp ON sensor_reading(timestamp)`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX idx_sensor_reading_timestamp`);
-    await queryRunner.query(`DROP INDEX idx_sensor_reading_sensor_id`);
     await queryRunner.query(`DROP TABLE sensor_reading`);
     await queryRunner.query(`DROP TABLE sensor`);
     await queryRunner.query(`DROP TABLE location`);

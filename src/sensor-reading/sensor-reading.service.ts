@@ -11,6 +11,7 @@ import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-qu
 import { PaginatedResponse } from '../dto/pagination-response.interface';
 import { SensorCacheService } from '../cache/sensor-cache.service';
 import { SensorRealtimeStats } from '../dto/sensor-realtime-stats.dto';
+import { SensorGateway } from '../websocket/sensor.gateway';
 
 @Injectable()
 export class SensorReadingService {
@@ -24,6 +25,7 @@ export class SensorReadingService {
     @InjectRepository(SensorType)
     private sensorTypeRepository: Repository<SensorType>,
     private sensorCacheService: SensorCacheService,
+    private sensorGateway: SensorGateway,
   ) {}
 
   async create(
@@ -75,6 +77,18 @@ export class SensorReadingService {
 
     // Bulk insert — 1 query
     await this.sensorReadingRepository.save(readingEntities);
+
+    // WEBSOCKET: Emit individual sensor updates
+    const now = new Date();
+    dto.readings.forEach((item) => {
+      this.sensorGateway.emitSensorUpdate({
+        sensorType: item.sensorType,
+        value: item.value,
+        location: locationName,
+        sensorNumber: item.sensorNumber,
+        timestamp: now,
+      });
+    });
 
     return { saved: readingEntities.length, location: locationName };
   }
@@ -144,6 +158,17 @@ export class SensorReadingService {
 
     // Single bulk insert - 1 DB query for all 42 sensors
     await this.sensorReadingRepository.save(readingEntities);
+
+    // WEBSOCKET: Emit batch update to all connected clients
+    const now = new Date();
+    const wsPayload = dto.readings.map((item) => ({
+      sensorType: item.sensorType,
+      value: item.value,
+      location: item.location.replace(/_/g, ' '),
+      sensorNumber: item.sensorNumber,
+      timestamp: now,
+    }));
+    this.sensorGateway.emitBatchUpdate(wsPayload);
 
     return {
       saved: readingEntities.length,

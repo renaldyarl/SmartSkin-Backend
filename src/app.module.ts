@@ -9,6 +9,7 @@ import { SensorReading } from './sensor-reading/sensor-reading.entity';
 import { SeederModule } from './seeder/seeder.module';
 import { SeederService } from './seeder/seeder.service';
 import { SensorCacheModule } from './cache/sensor-cache.module';
+import { WebSocketModule } from './websocket/websocket.module';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -35,6 +36,7 @@ dotenv.config();
     }),
     TypeOrmModule.forFeature([Location, SensorType, Sensor, SensorReading]),
     SensorCacheModule,
+    WebSocketModule,
     SensorModule,
     SensorReadingModule,
     ...(process.env.NODE_ENV !== 'production' ? [SeederModule] : []),
