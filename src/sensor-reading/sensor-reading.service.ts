@@ -92,7 +92,9 @@ export class SensorReadingService {
     for (const locationName of uniqueLocations) {
       const location = this.sensorCacheService.getLocation(locationName);
       if (!location) {
-        throw new NotFoundException(`Location "${locationName}" not found`);
+        throw new NotFoundException(
+          `Location "${locationName}" not found in cache. Available locations: ${Array.from(this.sensorCacheService['cache'].locations.keys()).join(', ')}`,
+        );
       }
       locationMap.set(locationName, location.id);
     }
@@ -105,7 +107,9 @@ export class SensorReadingService {
     for (const name of uniqueSensorTypeNames) {
       const sensorType = this.sensorCacheService.getSensorType(name);
       if (!sensorType) {
-        throw new NotFoundException(`Sensor type "${name}" not found`);
+        throw new NotFoundException(
+          `Sensor type "${name}" not found. Available types: ${Array.from(this.sensorCacheService['cache'].sensorTypes.keys()).join(', ')}`,
+        );
       }
     }
 
@@ -119,8 +123,16 @@ export class SensorReadingService {
       );
 
       if (!sensor) {
+        // Detailed error message for debugging
+        const cacheKey = `${item.sensorType}-${item.sensorNumber}-${locationName}`;
+        const availableKeys = Array.from(
+          this.sensorCacheService['cache'].sensors.keys(),
+        ).filter((k) => k.startsWith(`${item.sensorType}-`));
+
         throw new NotFoundException(
-          `Sensor not found for location "${item.location}", type "${item.sensorType}", number ${item.sensorNumber}`,
+          `Sensor not found! Cache key: "${cacheKey}". ` +
+            `Requested: type="${item.sensorType}", number=${item.sensorNumber}, location="${locationName}". ` +
+            `Available sensors for this type: [${availableKeys.slice(0, 5).join(', ')}...]`,
         );
       }
 
@@ -242,6 +254,33 @@ export class SensorReadingService {
     }
 
     return result;
+  }
+
+  getCacheDebugInfo() {
+    const cache = this.sensorCacheService['cache'];
+
+    return {
+      locations: Array.from(cache.locations.entries()).map(([name, data]) => ({
+        name,
+        id: data.id,
+      })),
+      sensorTypes: Array.from(cache.sensorTypes.entries()).map(
+        ([name, data]) => ({
+          name,
+          id: data.id,
+          unit: data.unit,
+        }),
+      ),
+      sensorCount: cache.sensors.size,
+      sampleSensors: Array.from(cache.sensors.entries())
+        .slice(0, 10)
+        .map(([key, sensor]) => ({
+          key,
+          ...sensor,
+        })),
+      totalLocations: cache.locations.size,
+      totalSensorTypes: cache.sensorTypes.size,
+    };
   }
 
   async getReadingsBySensorType(

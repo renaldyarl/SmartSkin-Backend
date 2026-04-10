@@ -46,6 +46,11 @@ export class SensorReadingController {
     return this.sensorReadingService.getLatestReadingsPerSensorType();
   }
 
+  @Get('debug/cache')
+  getCacheStatus() {
+    return this.sensorReadingService.getCacheDebugInfo();
+  }
+
   @Get(':sensorTypeName')
   @UsePipes(new ValidationPipe({ transform: true }))
   getReadingsBySensorType(
