@@ -12,6 +12,7 @@ import { SensorReadingService } from './sensor-reading.service';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
 import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.dto';
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
+import { SensorRealtimeStats } from '../dto/sensor-realtime-stats.dto';
 
 @Controller('sensor-reading')
 export class SensorReadingController {
@@ -38,6 +39,11 @@ export class SensorReadingController {
   @Get('sensor-types')
   getAvailableSensorTypes() {
     return this.sensorReadingService.getAvailableSensorTypes();
+  }
+
+  @Get('latest')
+  getLatestReadings(): Promise<SensorRealtimeStats[]> {
+    return this.sensorReadingService.getLatestReadingsPerSensorType();
   }
 
   @Get(':sensorTypeName')

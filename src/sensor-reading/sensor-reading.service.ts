@@ -10,6 +10,7 @@ import { SensorType } from '../sensor/sensor-type.entity';
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
 import { PaginatedResponse } from '../dto/pagination-response.interface';
 import { SensorCacheService } from '../cache/sensor-cache.service';
+import { SensorRealtimeStats } from '../dto/sensor-realtime-stats.dto';
 
 @Injectable()
 export class SensorReadingService {
@@ -203,6 +204,44 @@ export class SensorReadingService {
   async getAvailableSensorTypes(): Promise<{ name: string; unit: string }[]> {
     // OPTIMIZED: Return from cache instead of DB query
     return this.sensorCacheService.getAllSensorTypes();
+  }
+
+  async getLatestReadingsPerSensorType(): Promise<SensorRealtimeStats[]> {
+    const sensorTypes = this.sensorCacheService.getAllSensorTypes();
+    const result: SensorRealtimeStats[] = [];
+
+    for (const sensorType of sensorTypes) {
+      // Get the latest reading for this sensor type
+      const latestReading = await this.sensorReadingRepository
+        .createQueryBuilder('reading')
+        .leftJoin('reading.sensor', 'sensor')
+        .leftJoin('sensor.sensorType', 'sensorType')
+        .where('sensorType.name = :sensorTypeName', {
+          sensorTypeName: sensorType.name,
+        })
+        .orderBy('reading.timestamp', 'DESC')
+        .limit(1)
+        .getOne();
+
+      if (latestReading) {
+        result.push({
+          sensorType: sensorType.name,
+          unit: sensorType.unit,
+          value: parseFloat(latestReading.value.toString()),
+          timestamp: latestReading.timestamp,
+        });
+      } else {
+        // No data yet for this sensor type
+        result.push({
+          sensorType: sensorType.name,
+          unit: sensorType.unit,
+          value: null,
+          timestamp: null,
+        });
+      }
+    }
+
+    return result;
   }
 
   async getReadingsBySensorType(
