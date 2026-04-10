@@ -1,10 +1,11 @@
+  GNU nano 6.2                                                                                                                                                                 1760171876792 - InitMigration.ts
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class InitMigration1760171876792 implements MigrationInterface {
   name = "InitMigration1760171876792";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-await queryRunner.query(`
+    await queryRunner.query(`
   CREATE TABLE sensor_type (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
@@ -12,16 +13,17 @@ await queryRunner.query(`
   );
 `);
 
-await queryRunner.query(`
+    await queryRunner.query(`
   CREATE TABLE location (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL
   );
 `);
 
-await queryRunner.query(`
+    await queryRunner.query(`
   CREATE TABLE sensor (
     id SERIAL PRIMARY KEY,
+    "externalId" VARCHAR(255),
     sensor_type_id INT NOT NULL,
     location_id INT,
     CONSTRAINT fk_sensor_type FOREIGN KEY (sensor_type_id)
@@ -33,7 +35,7 @@ await queryRunner.query(`
   );
 `);
 
-await queryRunner.query(`
+    await queryRunner.query(`
   CREATE TABLE sensor_reading (
     id SERIAL PRIMARY KEY,
     sensor_id INT NOT NULL,
@@ -45,11 +47,11 @@ await queryRunner.query(`
   );
 `);
 
-await queryRunner.query(`
+    await queryRunner.query(`
   CREATE INDEX idx_sensor_reading_sensor_id ON sensor_reading(sensor_id);
 `);
 
-await queryRunner.query(`
+    await queryRunner.query(`
   CREATE INDEX idx_sensor_reading_timestamp ON sensor_reading(timestamp);
 `);
 
