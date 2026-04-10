@@ -17,12 +17,15 @@ export class SeederService {
   ) {}
 
   async seed() {
+    // IMPORTANT: Location names MUST match what hardware sends (converted from underscore to space)
+    // Hardware sends: right_arm, left_arm, back, right_leg, left_leg
+    // After conversion: right arm, left arm, back, right leg, left leg
     const locations = [
       'right arm',
       'left arm',
       'back',
-      'left leg',
       'right leg',
+      'left leg',
     ].map(name => ({ name }));
 
     const savedLocations: Location[] = [];
