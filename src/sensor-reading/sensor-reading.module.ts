@@ -7,7 +7,6 @@ import { SensorReadingService } from './sensor-reading.service';
 import { SensorReadingController } from './sensor-reading.controller';
 import { SensorType } from '../sensor/sensor-type.entity';
 import { SensorCacheModule } from '../cache/sensor-cache.module';
-import { WebSocketModule } from '../websocket/websocket.module';
 
 @Module({
   imports: [
@@ -19,7 +18,6 @@ import { WebSocketModule } from '../websocket/websocket.module';
     ]),
     TypeOrmModule.forFeature([SensorReading, Sensor, Location]),
     SensorCacheModule,
-    WebSocketModule,
   ],
   controllers: [SensorReadingController],
   providers: [SensorReadingService],
