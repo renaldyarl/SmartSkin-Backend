@@ -1,4 +1,3 @@
-  GNU nano 6.2                                                                                                                                                                 1760171876792 - InitMigration.ts
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class InitMigration1760171876792 implements MigrationInterface {

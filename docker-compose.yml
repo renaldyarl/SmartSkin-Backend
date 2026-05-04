@@ -1,18 +1,62 @@
-version: '3.4'
+version: '3.8'
 
 services:
   postgres:
-    image: postgres:12-alpine
+    image: postgres:16-alpine
+    container_name: smartskin-postgres
     environment:
-      POSTGRES_PASSWORD: 1
-      POSTGRES_USERNAME: postgres
-      POSTGRES_DB: samrt_skin
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: smart_skin
     ports:
-      - 5432:5432
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartskin-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartskin-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
+      DATABASE_NAME: smart_skin
+      APP_PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+    ports:
+      - '3000:3000'
+    networks:
+      - smartskin-network
+    restart: unless-stopped
+
   adminer:
-    image: adminer
+    image: adminer:latest
+    container_name: smartskin-adminer
     restart: always
+    ports:
+      - '8080:8080'
     depends_on:
       - postgres
-    ports:
-      - 8080:8080
+    networks:
+      - smartskin-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  smartskin-network:
+    driver: bridge
