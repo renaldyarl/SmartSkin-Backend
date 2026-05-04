@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SensorModule } from './sensor/sensor.module';
 import { SensorReadingModule } from './sensor-reading/sensor-reading.module';
+import { LoraModule } from './lora/lora.module';
 import { Location } from './location/location.entity';
 import { SensorType } from './sensor/sensor-type.entity';
 import { Sensor } from './sensor/sensor.entity';
@@ -37,6 +38,7 @@ dotenv.config();
     SensorCacheModule,
     SensorModule,
     SensorReadingModule,
+    LoraModule,
     ...(process.env.NODE_ENV !== 'production' ? [SeederModule] : []),
   ],
   providers: [

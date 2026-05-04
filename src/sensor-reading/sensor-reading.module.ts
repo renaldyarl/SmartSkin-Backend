@@ -21,5 +21,6 @@ import { SensorCacheModule } from '../cache/sensor-cache.module';
   ],
   controllers: [SensorReadingController],
   providers: [SensorReadingService],
+  exports: [SensorReadingService],
 })
 export class SensorReadingModule {}
