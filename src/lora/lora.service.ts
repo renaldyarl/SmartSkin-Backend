@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { SensorReadingService } from '../sensor-reading/sensor-reading.service';
 import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.dto';
 
@@ -35,11 +31,8 @@ export class LoraService {
   //
   // At least one of temperature / pressure / vibration must be provided.
   // One LoRa packet = one sensor point → creates up to 3 sensor_reading rows.
+  // Query param ?mid=1|2 selects which mannequin receives the data (default 1).
   async processPayload(body: any, mid: number) {
-    if (mid > 1) {
-      throw new NotFoundException(`Mannequin with id ${mid} not found`);
-    }
-
     const payload = this.extractPayload(body);
     if (!payload) {
       throw new BadRequestException('Empty or unrecognized payload format');
@@ -81,7 +74,7 @@ export class LoraService {
       );
     }
 
-    const dto = Object.assign(new BatchCreateSensorReadingDto(), { readings });
+    const dto = Object.assign(new BatchCreateSensorReadingDto(), { readings, mannequinId: mid });
     const result = await this.sensorReadingService.batchCreate(dto);
 
     return {

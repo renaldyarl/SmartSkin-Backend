@@ -53,6 +53,7 @@ export class SensorReadingService {
     // OPTIMIZED: Build reading entities using cache lookup
     const readingEntities = dto.readings.map((item) => {
       const sensor = this.sensorCacheService.getSensor(
+        1, // create() is single-location; defaults to mannequin 1
         item.sensorType,
         item.sensorNumber,
         locationName,
@@ -82,6 +83,8 @@ export class SensorReadingService {
   async batchCreate(
     dto: BatchCreateSensorReadingDto,
   ): Promise<{ saved: number; locations: string[] }> {
+    const mid = dto.mannequinId ?? 1;
+
     // OPTIMIZED: Use cache for all lookups - 0 DB queries for validation
     const locationMap = new Map<string, number>(); // name -> id
     const uniqueLocations = [
@@ -113,25 +116,25 @@ export class SensorReadingService {
       }
     }
 
-    // Build all reading entities using cache
+    // Build all reading entities using cache (keyed by mannequin)
     const readingEntities = dto.readings.map((item) => {
       const locationName = item.location.replace(/_/g, ' ');
       const sensor = this.sensorCacheService.getSensor(
+        mid,
         item.sensorType,
         item.sensorNumber,
         locationName,
       );
 
       if (!sensor) {
-        // Detailed error message for debugging
-        const cacheKey = `${item.sensorType}-${item.sensorNumber}-${locationName}`;
+        const cacheKey = `${mid}-${item.sensorType}-${item.sensorNumber}-${locationName}`;
         const availableKeys = Array.from(
           this.sensorCacheService['cache'].sensors.keys(),
-        ).filter((k) => k.startsWith(`${item.sensorType}-`));
+        ).filter((k) => k.startsWith(`${mid}-${item.sensorType}-`));
 
         throw new NotFoundException(
           `Sensor not found! Cache key: "${cacheKey}". ` +
-            `Requested: type="${item.sensorType}", number=${item.sensorNumber}, location="${locationName}". ` +
+            `Requested: mannequin=${mid}, type="${item.sensorType}", number=${item.sensorNumber}, location="${locationName}". ` +
             `Available sensors for this type: [${availableKeys.slice(0, 5).join(', ')}...]`,
         );
       }
@@ -142,7 +145,7 @@ export class SensorReadingService {
       });
     });
 
-    // Single bulk insert - 1 DB query for all 42 sensors
+    // Single bulk insert - 1 DB query for all sensors
     await this.sensorReadingRepository.save(readingEntities);
 
     return {
@@ -154,7 +157,7 @@ export class SensorReadingService {
   async findBySensorType(
     query: PaginateSensorReadingQueryDto,
   ): Promise<PaginatedResponse<any>> {
-    const { page = 1, limit = 10, sensorType, location, startDate, endDate } =
+    const { page = 1, limit = 10, sensorType, location, startDate, endDate, mannequin_id: mannequinId = 1 } =
       query;
 
     const skip = (page - 1) * limit;
@@ -164,7 +167,8 @@ export class SensorReadingService {
         .createQueryBuilder('reading')
         .leftJoinAndSelect('reading.sensor', 'sensor')
         .leftJoinAndSelect('sensor.sensorType', 'sensorType')
-        .leftJoinAndSelect('sensor.location', 'location');
+        .leftJoinAndSelect('sensor.location', 'location')
+        .andWhere('sensor.mannequin_id = :mannequinId', { mannequinId });
 
     // Filter by sensor type
     if (sensorType) {
@@ -192,15 +196,10 @@ export class SensorReadingService {
       });
     }
 
-    // Order by timestamp descending (newest first)
     queryBuilder.orderBy('reading.timestamp', 'DESC');
-
-    // Apply pagination
     queryBuilder.skip(skip).take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
-
-    const totalPages = Math.ceil(total / limit);
 
     return {
       data,
@@ -208,7 +207,7 @@ export class SensorReadingService {
         total,
         page,
         limit,
-        totalPages,
+        totalPages: Math.ceil(total / limit),
       },
     };
   }
@@ -218,12 +217,11 @@ export class SensorReadingService {
     return this.sensorCacheService.getAllSensorTypes();
   }
 
-  async getLatestReadingsPerSensorType(): Promise<SensorRealtimeStats[]> {
+  async getLatestReadingsPerSensorType(mannequinId: number = 1): Promise<SensorRealtimeStats[]> {
     const sensorTypes = this.sensorCacheService.getAllSensorTypes();
     const result: SensorRealtimeStats[] = [];
 
     for (const sensorType of sensorTypes) {
-      // Get the latest reading for this sensor type
       const latestReading = await this.sensorReadingRepository
         .createQueryBuilder('reading')
         .leftJoin('reading.sensor', 'sensor')
@@ -231,6 +229,7 @@ export class SensorReadingService {
         .where('sensorType.name = :sensorTypeName', {
           sensorTypeName: sensorType.name,
         })
+        .andWhere('sensor.mannequin_id = :mannequinId', { mannequinId })
         .orderBy('reading.timestamp', 'DESC')
         .limit(1)
         .getOne();

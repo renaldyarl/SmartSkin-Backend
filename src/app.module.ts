@@ -7,6 +7,7 @@ import { Location } from './location/location.entity';
 import { SensorType } from './sensor/sensor-type.entity';
 import { Sensor } from './sensor/sensor.entity';
 import { SensorReading } from './sensor-reading/sensor-reading.entity';
+import { Mannequin } from './mannequin/mannequin.entity';
 import { SeederModule } from './seeder/seeder.module';
 import { SeederService } from './seeder/seeder.service';
 import { SensorCacheModule } from './cache/sensor-cache.module';
@@ -23,7 +24,7 @@ dotenv.config();
       username: process.env.DB_USERNAME || 'postgres',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'postgres',
-      entities: [Location, SensorType, Sensor, SensorReading],
+      entities: [Location, SensorType, Sensor, SensorReading, Mannequin],
       synchronize: process.env.DB_SYNCHRONIZATION === 'true',
       logging: process.env.DB_LOGGING === 'true',
       // Connection pool optimization for high-write workload (42 sensors/5sec)
@@ -34,7 +35,7 @@ dotenv.config();
         connectionTimeoutMillis: 2000, // Fail fast if no connection available
       },
     }),
-    TypeOrmModule.forFeature([Location, SensorType, Sensor, SensorReading]),
+    TypeOrmModule.forFeature([Location, SensorType, Sensor, SensorReading, Mannequin]),
     SensorCacheModule,
     SensorModule,
     SensorReadingModule,

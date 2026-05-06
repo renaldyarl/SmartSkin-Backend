@@ -10,12 +10,13 @@ export interface CachedSensor {
   externalId: number;
   sensorTypeName: string;
   locationName: string;
+  mannequinId: number;
 }
 
 export interface CacheData {
   locations: Map<string, { id: number; name: string }>;
   sensorTypes: Map<string, { id: number; name: string; unit: string }>;
-  sensors: Map<string, CachedSensor>; // key: "sensorTypeName-externalId-locationName"
+  sensors: Map<string, CachedSensor>; // key: "mannequinId-sensorTypeName-externalId-locationName"
 }
 
 @Injectable()
@@ -47,7 +48,7 @@ export class SensorCacheService implements OnModuleInit, OnModuleDestroy {
       this.refreshCache().catch((err) =>
         this.logger.error('Cache refresh failed:', err),
       );
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 5 * 60 * 1000);
   }
 
   onModuleDestroy() {
@@ -60,13 +61,11 @@ export class SensorCacheService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Refreshing sensor cache...');
 
-      // Load all locations
       const locations = await this.locationRepository.find();
       this.cache.locations = new Map(
         locations.map((loc) => [loc.name, { id: loc.id, name: loc.name }]),
       );
 
-      // Load all sensor types
       const sensorTypes = await this.sensorTypeRepository.find();
       this.cache.sensorTypes = new Map(
         sensorTypes.map((st) => [
@@ -75,20 +74,21 @@ export class SensorCacheService implements OnModuleInit, OnModuleDestroy {
         ]),
       );
 
-      // Load all sensors with relations
+      // Load sensors with mannequin relation for per-mannequin cache keys
       const sensors = await this.sensorRepository.find({
-        relations: ['sensorType', 'location'],
+        relations: ['sensorType', 'location', 'mannequin'],
       });
 
-      // Create lookup map: "sensorTypeName-externalId-locationName" -> Sensor
       this.cache.sensors = new Map();
       for (const sensor of sensors) {
-        const key = `${sensor.sensorType.name}-${sensor.externalId}-${sensor.location?.name}`;
+        const mid = sensor.mannequin?.id ?? sensor.mannequinId ?? 1;
+        const key = `${mid}-${sensor.sensorType.name}-${sensor.externalId}-${sensor.location?.name}`;
         this.cache.sensors.set(key, {
           id: sensor.id,
           externalId: sensor.externalId,
           sensorTypeName: sensor.sensorType.name,
           locationName: sensor.location?.name,
+          mannequinId: mid,
         });
       }
 
@@ -113,11 +113,12 @@ export class SensorCacheService implements OnModuleInit, OnModuleDestroy {
   }
 
   getSensor(
+    mannequinId: number,
     sensorTypeName: string,
     externalId: number,
     locationName: string,
   ): CachedSensor | undefined {
-    const key = `${sensorTypeName}-${externalId}-${locationName}`;
+    const key = `${mannequinId}-${sensorTypeName}-${externalId}-${locationName}`;
     return this.cache.sensors.get(key);
   }
 

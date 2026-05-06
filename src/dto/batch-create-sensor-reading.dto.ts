@@ -7,6 +7,8 @@ import {
   ArrayMinSize,
   Min,
   Max,
+  IsOptional,
+  IsInt,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -35,4 +37,9 @@ export class BatchCreateSensorReadingDto {
   @ValidateNested({ each: true })
   @Type(() => BatchSensorReadingItemDto)
   readings: BatchSensorReadingItemDto[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  mannequinId?: number;
 }

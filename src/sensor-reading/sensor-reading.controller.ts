@@ -7,6 +7,8 @@ import {
   ValidationPipe,
   Query,
   Param,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { SensorReadingService } from './sensor-reading.service';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
@@ -42,8 +44,10 @@ export class SensorReadingController {
   }
 
   @Get('latest')
-  getLatestReadings(): Promise<SensorRealtimeStats[]> {
-    return this.sensorReadingService.getLatestReadingsPerSensorType();
+  getLatestReadings(
+    @Query('mannequin_id', new DefaultValuePipe(1), ParseIntPipe) mannequinId: number,
+  ): Promise<SensorRealtimeStats[]> {
+    return this.sensorReadingService.getLatestReadingsPerSensorType(mannequinId);
   }
 
   @Get('debug/cache')

@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, Min, IsString, IsEnum } from 'class-validator';
+import { IsOptional, IsInt, Min, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum SensorTypeEnum {
@@ -35,4 +35,10 @@ export class PaginateSensorReadingQueryDto {
   @IsOptional()
   @IsString()
   endDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  mannequin_id?: number = 1;
 }

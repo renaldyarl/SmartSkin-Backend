@@ -30,6 +30,7 @@ Bulk insert readings from all sensors in a single request. **Optimized for high-
 **Request Body:**
 ```typescript
 {
+  mannequinId?: number;  // optional — 1 or 2, default: 1 (backward compatible)
   readings: [
     {
       sensorType: string;    // "temperature" | "pressure" | "vibration"
@@ -46,6 +47,7 @@ Bulk insert readings from all sensors in a single request. **Optimized for high-
 curl -X POST http://localhost:3000/sensor-reading/batch \
   -H "Content-Type: application/json" \
   -d '{
+    "mannequinId": 1,
     "readings": [
       {
         "sensorType": "temperature",
@@ -138,11 +140,19 @@ curl -X POST http://localhost:3000/sensor-reading \
 
 Get the latest reading for each sensor type. **Used by frontend dashboard for real-time display.**
 
-**Query Parameters:** None
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `mannequin_id` | number | No | 1 | Mannequin to query (1 or 2) |
 
 **Example Request:**
 ```bash
+# Mannequin 1 (default)
 curl http://localhost:3000/sensor-reading/latest
+
+# Mannequin 2
+curl "http://localhost:3000/sensor-reading/latest?mannequin_id=2"
 ```
 
 **Success Response (200):**
@@ -173,7 +183,9 @@ curl http://localhost:3000/sensor-reading/latest
 ```javascript
 // Fetch every 3 seconds for real-time dashboard
 setInterval(async () => {
-  const data = await fetch('/sensor-reading/latest').then(r => r.json());
+  const url = new URL(`${API_BASE}/sensor-reading/latest`);
+  url.searchParams.set("mannequin_id", String(mannequinId)); // 1 or 2
+  const data = await fetch(url.toString()).then(r => r.json());
   const temperature = data.find(s => s.sensorType === 'temperature');
   console.log(`Current temp: ${temperature.value} °C`);
 }, 3000);
@@ -195,10 +207,15 @@ Get paginated sensor readings with filters. **Used by frontend detail page for c
 | `location` | string | No | - | Filter by location (use underscore: `right_arm`) |
 | `startDate` | string | No | - | Filter by start date (ISO 8601) |
 | `endDate` | string | No | - | Filter by end date (ISO 8601) |
+| `mannequin_id` | number | No | 1 | Mannequin to query (1 or 2) |
 
 **Example Request:**
 ```bash
+# Mannequin 1 (default)
 curl "http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20"
+
+# Mannequin 2
+curl "http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20&mannequin_id=2"
 ```
 
 **Success Response (200):**
@@ -242,6 +259,7 @@ setInterval(async () => {
   url.searchParams.set("location", "right_arm");
   url.searchParams.set("page", "1");
   url.searchParams.set("limit", "21");
+  url.searchParams.set("mannequin_id", String(mannequinId)); // 1 or 2
 
   const res = await fetch(url.toString());
   const json = await res.json();
@@ -339,6 +357,100 @@ curl "http://localhost:3000/sensor-reading/temperature?page=1&limit=20&location=
 
 ---
 
+## LoRa API
+
+### POST `/lora`
+
+Receive a decoded LoRa uplink packet from TTN or Chirpstack and store the sensor readings. One packet covers one sensor point at one location.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `mid` | number | No | 1 | Mannequin ID (1 or 2) |
+
+**Request Body** — supports TTN v3 and Chirpstack envelope formats. The `decoded_payload` object must contain:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `location` | string | Yes | `right_arm` \| `left_arm` \| `back` \| `right_leg` \| `left_leg` |
+| `sensorNumber` | number | Yes | 1 – max points for the location (see table below) |
+| `temperature` | number | No | Value in °C — at least one sensor value required |
+| `pressure` | number | No | Value in kPa |
+| `vibration` | number | No | Value in g |
+
+**Valid `sensorNumber` range per location:**
+
+| location | sensorNumber |
+|---|---|
+| `right_arm` | 1 – 2 |
+| `left_arm` | 1 – 2 |
+| `back` | 1 – 4 |
+| `right_leg` | 1 – 3 |
+| `left_leg` | 1 – 3 |
+
+**Example — TTN v3 envelope (Mannequin 1):**
+```bash
+curl -X POST "http://localhost:3000/lora?mid=1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uplink_message": {
+      "decoded_payload": {
+        "location": "right_arm",
+        "sensorNumber": 1,
+        "temperature": 36.5,
+        "pressure": 101.3,
+        "vibration": 0.05
+      }
+    }
+  }'
+```
+
+**Example — Chirpstack / raw decoded_payload (Mannequin 2):**
+```bash
+curl -X POST "http://localhost:3000/lora?mid=2" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decoded_payload": {
+      "location": "back",
+      "sensorNumber": 3,
+      "temperature": 37.2
+    }
+  }'
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "ok",
+  "message": "success to store lora data",
+  "data": {
+    "saved": 3,
+    "locations": ["right arm"]
+  }
+}
+```
+
+**Supported payload envelope formats (tried in order):**
+1. `body.uplink_message.decoded_payload` — TTN v3
+2. `body.object.uplink_message.decoded_payload` — TTN (wrapped)
+3. `body.decoded_payload` — Chirpstack
+4. `body.object` — raw object
+
+**Error Responses:**
+```json
+// 400 — missing or invalid location
+{ "statusCode": 400, "message": "Invalid or missing \"location\". Valid values: right_arm, left_arm, back, right_leg, left_leg" }
+
+// 400 — sensorNumber out of range
+{ "statusCode": 400, "message": "Invalid \"sensorNumber\" for location \"right_arm\". Must be 1–2" }
+
+// 400 — no sensor values
+{ "statusCode": 400, "message": "Payload must contain at least one of: temperature, pressure, vibration" }
+```
+
+---
+
 ## Sensor Management API
 
 ### 1. POST `/sensor`
@@ -417,18 +529,24 @@ curl http://localhost:3000/sensor
 
 ### Tables
 
+#### `mannequin`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | SERIAL | Primary key |
+| `name` | VARCHAR(100) | Mannequin name (e.g. "Mannequin 1") |
+
 #### `sensor_type`
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | SERIAL | Primary key |
 | `name` | VARCHAR(50) | Sensor type name (temperature, pressure, vibration) |
-| `unit` | VARCHAR(20) | Measurement unit (degC, kPa, g) |
+| `unit` | VARCHAR(20) | Measurement unit (°C, kPa, g) |
 
 #### `location`
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | SERIAL | Primary key |
-| `name` | VARCHAR(100) | Location name (right arm, left arm, back, etc.) |
+| `name` | VARCHAR(100) | Location name (right arm, left arm, back, etc.) — shared across mannequins |
 
 #### `sensor`
 | Column | Type | Description |
@@ -437,6 +555,7 @@ curl http://localhost:3000/sensor
 | `externalId` | INT | Sensor point number (1-4) |
 | `sensor_type_id` | INT | FK → sensor_type.id |
 | `location_id` | INT | FK → location.id (nullable) |
+| `mannequin_id` | INT | FK → mannequin.id (nullable) |
 
 #### `sensor_reading`
 | Column | Type | Description |
@@ -450,24 +569,32 @@ curl http://localhost:3000/sensor
 
 ## Reference Data
 
+### Mannequins
+
+| ID | Name |
+|----|------|
+| 1 | `Mannequin 1` |
+| 2 | `Mannequin 2` |
+
 ### Sensor Types
 
 | ID | Name | Unit | Description |
 |----|------|------|-------------|
-| 1 | `temperature` | `degC` | Temperature in degrees Celsius |
+| 1 | `temperature` | `°C` | Temperature in degrees Celsius |
 | 2 | `pressure` | `kPa` | Pressure in kilopascals |
 | 3 | `vibration` | `g` | Vibration in g-force |
 
-### Locations
+### Locations (shared across all mannequins)
 
-| ID | Name | Sensor Points | Total Sensors |
-|----|------|---------------|---------------|
+| ID | Name | Sensor Points | Sensors per Mannequin |
+|----|------|---------------|-----------------------|
 | 1 | `right arm` | 2 | 6 (2 points × 3 types) |
 | 2 | `left arm` | 2 | 6 |
 | 3 | `back` | 4 | 12 |
 | 4 | `left leg` | 3 | 9 |
 | 5 | `right leg` | 3 | 9 |
-| **Total** | | | **42 sensors** |
+| **Total per mannequin** | | | **42 sensors** |
+| **Total (2 mannequins)** | | | **84 sensors** |
 
 ---
 
@@ -610,53 +737,44 @@ npm run seeder
 
 ### Dashboard Page (`/dashboard`)
 
-**Endpoint:** `GET /sensor-reading/latest`
+**Endpoint:** `GET /sensor-reading/latest?mannequin_id={id}`
 
 **Polling interval:** 3000ms (3 seconds)
 
-**Purpose:** Display real-time values for each sensor type (Temperature, Pressure, Vibration)
+**Purpose:** Display real-time values for each sensor type (Temperature, Pressure, Vibration). Includes mannequin selector dropdown.
 
 **Example:**
 ```javascript
-const [summary, setSummary] = useState({
-  temp: { value: null, timestamp: null, status: "warn" },
-  press: { value: null, timestamp: null, status: "warn" },
-  vib: { value: null, timestamp: null, status: "warn" },
-});
+const [mannequinId, setMannequinId] = useState(1); // 1 or 2
 
 useEffect(() => {
   const fetchData = async () => {
-    const res = await fetch(`${API_BASE}/sensor-reading/latest`);
-    const data = await res.json();
-    
-    // Map backend data to frontend state
-    const nextSummary = {
-      temp: buildRealtimeSummary(data.find(s => s.sensorType === 'temperature')),
-      press: buildRealtimeSummary(data.find(s => s.sensorType === 'pressure')),
-      vib: buildRealtimeSummary(data.find(s => s.sensorType === 'vibration')),
-    };
-    
-    setSummary(nextSummary);
+    const url = new URL(`${API_BASE}/sensor-reading/latest`);
+    url.searchParams.set("mannequin_id", String(mannequinId));
+    const data = await fetch(url.toString()).then(r => r.json());
+    // Map to dashboard state...
   };
   
   fetchData();
   const interval = setInterval(fetchData, 3000);
   return () => clearInterval(interval);
-}, []);
+}, [mannequinId]); // re-fetches when mannequin changes
 ```
 
 ---
 
 ### Detail Page (`/sensor/:sensorKey`)
 
-**Endpoint:** `GET /sensor-reading/paginated`
+**Endpoint:** `GET /sensor-reading/paginated?mannequin_id={id}`
 
 **Polling interval:** 1000ms (1 second)
 
-**Purpose:** Fetch time-series data for charts per sensor type and location
+**Purpose:** Fetch time-series data for charts per sensor type and location. Includes mannequin selector dropdown.
 
 **Example:**
 ```javascript
+const [mannequinId, setMannequinId] = useState(1);
+
 useEffect(() => {
   const fetchAllParts = async () => {
     const requests = PARTS.map(async (part) => {
@@ -665,6 +783,7 @@ useEffect(() => {
       url.searchParams.set("location", PART_TO_BACKEND_LOCATION[part]);
       url.searchParams.set("page", "1");
       url.searchParams.set("limit", "21");
+      url.searchParams.set("mannequin_id", String(mannequinId));
 
       const res = await fetch(url.toString());
       const json = await res.json();
@@ -678,7 +797,7 @@ useEffect(() => {
   fetchAllParts();
   const interval = setInterval(fetchAllParts, 1000);
   return () => clearInterval(interval);
-}, [sensorKey]);
+}, [sensorKey, mannequinId]); // re-fetches when mannequin or sensor type changes
 ```
 
 ---
@@ -796,7 +915,17 @@ curl http://localhost:3000/sensor-reading/latest
 
 ## Changelog
 
-### Latest Version
+### v3.0 — Multi-Mannequin + LoRa (May 2026)
+- ✅ Added `mannequin` table to database — supports multiple physical mannequins
+- ✅ Added `mannequin_id` FK to `sensor` table — 84 sensors total (42 per mannequin)
+- ✅ Added `POST /lora` endpoint — receive LoRa packets from TTN/Chirpstack for either mannequin
+- ✅ `GET /sensor-reading/latest` now accepts `?mannequin_id` param (default: 1)
+- ✅ `GET /sensor-reading/paginated` now accepts `?mannequin_id` param (default: 1)
+- ✅ `POST /sensor-reading/batch` now accepts optional `mannequinId` field (default: 1)
+- ✅ `SensorCacheService` cache key updated to include mannequin dimension
+- ✅ All changes are backward compatible — existing callers without `mannequin_id` default to Mannequin 1
+
+### v2.0 — Performance Optimization
 - ✅ Added `POST /sensor-reading/batch` for bulk insert (99.4% performance improvement)
 - ✅ Added `GET /sensor-reading/latest` for real-time dashboard display
 - ✅ Implemented in-memory caching for reference data
@@ -815,5 +944,5 @@ For issues or questions:
 
 ---
 
-**Last Updated:** April 10, 2026  
-**API Version:** 2.0 (Optimized)
+**Last Updated:** May 6, 2026  
+**API Version:** 3.0 (Multi-Mannequin + LoRa)
