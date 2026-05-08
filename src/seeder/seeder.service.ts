@@ -20,14 +20,15 @@ export class SeederService {
   ) {}
 
   async seed() {
+    // Update units for existing sensor types (hardware spec v2)
+    await this.sensorTypeRepo.update({ name: 'pressure' }, { unit: 'N' });
+    await this.sensorTypeRepo.update({ name: 'vibration' }, { unit: 'V' });
+
     // Seed locations (shared across all mannequins)
     // Hardware sends underscores; app converts to spaces: right_arm → right arm
     const locations = [
-      'right arm',
-      'left arm',
-      'back',
-      'right leg',
-      'left leg',
+      'right arm', 'left arm', 'back', 'right leg', 'left leg',
+      'right elbow', 'left elbow', 'right knee', 'left knee',
     ].map((name) => ({ name }));
 
     const savedLocations: Location[] = [];
@@ -41,8 +42,10 @@ export class SeederService {
 
     const sensorTypes = [
       { name: 'temperature', unit: '°C' },
-      { name: 'pressure', unit: 'kPa' },
-      { name: 'vibration', unit: 'g' },
+      { name: 'pressure',    unit: 'N' },
+      { name: 'vibration',   unit: 'V' },
+      { name: 'flex',        unit: 'Ω' },
+      { name: 'strain',      unit: 'µε' },
     ];
 
     const savedSensorTypes: SensorType[] = [];
@@ -55,11 +58,15 @@ export class SeederService {
     }
 
     const LOCATION_POINT_COUNT: Record<string, number> = {
-      'right arm': 2,
-      'left arm':  2,
-      'back':      4,
-      'left leg':  3,
-      'right leg': 3,
+      'right arm':   2,
+      'left arm':    2,
+      'back':        4,
+      'left leg':    3,
+      'right leg':   3,
+      'right elbow': 1,
+      'left elbow':  1,
+      'right knee':  1,
+      'left knee':   1,
     };
 
     // Seed 2 mannequins
@@ -82,35 +89,49 @@ export class SeederService {
       .where('mannequin_id IS NULL')
       .execute();
 
-    // Seed 42 sensors per mannequin (84 total)
+    // Separate location and type groups to avoid cross-seeding
+    const OLD_LOCATION_NAMES = ['right arm', 'left arm', 'back', 'right leg', 'left leg'];
+    const NEW_LOCATION_NAMES = ['right elbow', 'left elbow', 'right knee', 'left knee'];
+    const OLD_TYPE_NAMES = ['temperature', 'pressure', 'vibration'];
+    const NEW_TYPE_NAMES = ['flex', 'strain'];
+
+    const oldLocations = savedLocations.filter(l => OLD_LOCATION_NAMES.includes(l.name));
+    const newLocations = savedLocations.filter(l => NEW_LOCATION_NAMES.includes(l.name));
+    const oldTypes = savedSensorTypes.filter(t => OLD_TYPE_NAMES.includes(t.name));
+    const newTypes = savedSensorTypes.filter(t => NEW_TYPE_NAMES.includes(t.name));
+
     for (const mannequin of savedMannequins) {
-      for (const loc of savedLocations) {
+      // Group A: original 5 locations × 3 original sensor types
+      for (const loc of oldLocations) {
         const pointCount = LOCATION_POINT_COUNT[loc.name];
-
         for (let point = 1; point <= pointCount; point++) {
-          for (const type of savedSensorTypes) {
+          for (const type of oldTypes) {
             const existing = await this.sensorRepo.findOne({
-              where: {
-                location: { id: loc.id },
-                sensorType: { id: type.id },
-                externalId: point,
-                mannequinId: mannequin.id,
-              },
+              where: { location: { id: loc.id }, sensorType: { id: type.id }, externalId: point, mannequinId: mannequin.id },
             });
-
             if (!existing) {
-              await this.sensorRepo.save({
-                location: loc,
-                sensorType: type,
-                externalId: point,
-                mannequin,
-              });
+              await this.sensorRepo.save({ location: loc, sensorType: type, externalId: point, mannequin });
+            }
+          }
+        }
+      }
+
+      // Group B: 4 new locations × 2 new sensor types only
+      for (const loc of newLocations) {
+        const pointCount = LOCATION_POINT_COUNT[loc.name];
+        for (let point = 1; point <= pointCount; point++) {
+          for (const type of newTypes) {
+            const existing = await this.sensorRepo.findOne({
+              where: { location: { id: loc.id }, sensorType: { id: type.id }, externalId: point, mannequinId: mannequin.id },
+            });
+            if (!existing) {
+              await this.sensorRepo.save({ location: loc, sensorType: type, externalId: point, mannequin });
             }
           }
         }
       }
     }
 
-    console.log('✅ Seeder: 2 mannequins, 5 locations, 3 sensor types, 84 sensors created!');
+    console.log('✅ Seeder: 2 mannequins, 9 locations, 5 sensor types, 100 sensors created!');
   }
 }

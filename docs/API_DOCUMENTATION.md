@@ -33,10 +33,10 @@ Bulk insert readings from all sensors in a single request. **Optimized for high-
   mannequinId?: number;  // optional — 1 or 2, default: 1 (backward compatible)
   readings: [
     {
-      sensorType: string;    // "temperature" | "pressure" | "vibration"
-      sensorNumber: number;  // 1-4
+      sensorType: string;    // "temperature" | "pressure" | "vibration" | "flex" | "strain"
+      sensorNumber: number;  // 1–4 (arm/leg/back); always 1 for elbow/knee
       value: number;
-      location: string;      // "right_arm" | "left_arm" | "back" | "right_leg" | "left_leg"
+      location: string;      // see Locations reference table
     }
   ]
 }
@@ -80,7 +80,7 @@ curl -X POST http://localhost:3000/sensor-reading/batch \
 ```
 
 **Performance:**
-- ✅ 1 HTTP request for all 42 sensors
+- ✅ 1 HTTP request for all 50 sensors (per mannequin)
 - ✅ 1 DB query (bulk insert)
 - ✅ In-memory cache for validation (0 lookup queries)
 - ✅ ~20-40ms latency
@@ -95,6 +95,7 @@ Insert readings for a single location. **Legacy endpoint, use batch for better p
 ```typescript
 {
   location: string;  // "right_arm" | "left_arm" | "back" | "right_leg" | "left_leg"
+                     // ⚠️ Legacy endpoint — does not support elbow/knee locations or flex/strain types
   readings: [
     {
       sensorType: string;    // "temperature" | "pressure" | "vibration"
@@ -160,20 +161,32 @@ curl "http://localhost:3000/sensor-reading/latest?mannequin_id=2"
 [
   {
     "sensorType": "temperature",
-    "unit": "degC",
+    "unit": "°C",
     "value": 36.5,
     "timestamp": "2026-04-10T09:22:39.000Z"
   },
   {
     "sensorType": "pressure",
-    "unit": "kPa",
-    "value": 101.325,
+    "unit": "N",
+    "value": 52.3,
     "timestamp": "2026-04-10T09:22:38.000Z"
   },
   {
     "sensorType": "vibration",
-    "unit": "g",
-    "value": 0.5,
+    "unit": "V",
+    "value": 0.42,
+    "timestamp": "2026-04-10T09:22:37.000Z"
+  },
+  {
+    "sensorType": "flex",
+    "unit": "Ω",
+    "value": 98500,
+    "timestamp": "2026-04-10T09:22:37.000Z"
+  },
+  {
+    "sensorType": "strain",
+    "unit": "µε",
+    "value": 14200,
     "timestamp": "2026-04-10T09:22:37.000Z"
   }
 ]
@@ -281,18 +294,11 @@ curl http://localhost:3000/sensor-reading/sensor-types
 **Success Response (200):**
 ```json
 [
-  {
-    "name": "temperature",
-    "unit": "degC"
-  },
-  {
-    "name": "pressure",
-    "unit": "kPa"
-  },
-  {
-    "name": "vibration",
-    "unit": "g"
-  }
+  { "name": "temperature", "unit": "°C"  },
+  { "name": "pressure",    "unit": "N"   },
+  { "name": "vibration",   "unit": "V"   },
+  { "name": "flex",        "unit": "Ω"   },
+  { "name": "strain",      "unit": "µε"  }
 ]
 ```
 
@@ -373,21 +379,27 @@ Receive a decoded LoRa uplink packet from TTN or Chirpstack and store the sensor
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `location` | string | Yes | `right_arm` \| `left_arm` \| `back` \| `right_leg` \| `left_leg` |
+| `location` | string | Yes | See valid locations table below |
 | `sensorNumber` | number | Yes | 1 – max points for the location (see table below) |
 | `temperature` | number | No | Value in °C — at least one sensor value required |
-| `pressure` | number | No | Value in kPa |
-| `vibration` | number | No | Value in g |
+| `pressure` | number | No | Value in N (newton) |
+| `vibration` | number | No | Value in V (volt) |
+| `flex` | number | No | Value in Ω (ohm) — only for elbow/knee locations |
+| `strain` | number | No | Value in µε (microstrain) — only for elbow/knee locations |
 
 **Valid `sensorNumber` range per location:**
 
-| location | sensorNumber |
-|---|---|
-| `right_arm` | 1 – 2 |
-| `left_arm` | 1 – 2 |
-| `back` | 1 – 4 |
-| `right_leg` | 1 – 3 |
-| `left_leg` | 1 – 3 |
+| location | sensorNumber | sensor types |
+|---|---|---|
+| `right_arm` | 1 – 2 | temperature, pressure, vibration |
+| `left_arm` | 1 – 2 | temperature, pressure, vibration |
+| `back` | 1 – 4 | temperature, pressure, vibration |
+| `right_leg` | 1 – 3 | temperature, pressure, vibration |
+| `left_leg` | 1 – 3 | temperature, pressure, vibration |
+| `right_elbow` | 1 | flex, strain |
+| `left_elbow` | 1 | flex, strain |
+| `right_knee` | 1 | flex, strain |
+| `left_knee` | 1 | flex, strain |
 
 **Example — TTN v3 envelope (Mannequin 1):**
 ```bash
@@ -440,13 +452,13 @@ curl -X POST "http://localhost:3000/lora?mid=2" \
 **Error Responses:**
 ```json
 // 400 — missing or invalid location
-{ "statusCode": 400, "message": "Invalid or missing \"location\". Valid values: right_arm, left_arm, back, right_leg, left_leg" }
+{ "statusCode": 400, "message": "Invalid or missing \"location\". Valid values: right_arm, left_arm, back, right_leg, left_leg, right_elbow, left_elbow, right_knee, left_knee" }
 
 // 400 — sensorNumber out of range
 { "statusCode": 400, "message": "Invalid \"sensorNumber\" for location \"right_arm\". Must be 1–2" }
 
 // 400 — no sensor values
-{ "statusCode": 400, "message": "Payload must contain at least one of: temperature, pressure, vibration" }
+{ "statusCode": 400, "message": "Payload must contain at least one of: temperature, pressure, vibration, flex, strain" }
 ```
 
 ---
@@ -539,8 +551,8 @@ curl http://localhost:3000/sensor
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | SERIAL | Primary key |
-| `name` | VARCHAR(50) | Sensor type name (temperature, pressure, vibration) |
-| `unit` | VARCHAR(20) | Measurement unit (°C, kPa, g) |
+| `name` | VARCHAR(50) | Sensor type name (temperature, pressure, vibration, flex, strain) |
+| `unit` | VARCHAR(20) | Measurement unit (°C, N, V, Ω, µε) |
 
 #### `location`
 | Column | Type | Description |
@@ -578,23 +590,29 @@ curl http://localhost:3000/sensor
 
 ### Sensor Types
 
-| ID | Name | Unit | Description |
-|----|------|------|-------------|
-| 1 | `temperature` | `°C` | Temperature in degrees Celsius |
-| 2 | `pressure` | `kPa` | Pressure in kilopascals |
-| 3 | `vibration` | `g` | Vibration in g-force |
+| ID | Name | Unit | Hardware Component | Max | Danger Threshold |
+|----|------|------|--------------------|-----|-----------------|
+| 1 | `temperature` | `°C` | MCP9808 | 50 °C | 38 °C |
+| 2 | `pressure` | `N` | FSR RP-S40-ST | 98.07 N | 45–70 N |
+| 3 | `vibration` | `V` | Piezoelectric | 3 V | — |
+| 4 | `flex` | `Ω` | Flex Sensor | 125 000 Ω | 95 000–105 000 Ω |
+| 5 | `strain` | `µε` | Strain Gauge | 20 000 µε | 12 000–20 000 µε |
 
 ### Locations (shared across all mannequins)
 
-| ID | Name | Sensor Points | Sensors per Mannequin |
-|----|------|---------------|-----------------------|
-| 1 | `right arm` | 2 | 6 (2 points × 3 types) |
-| 2 | `left arm` | 2 | 6 |
-| 3 | `back` | 4 | 12 |
-| 4 | `left leg` | 3 | 9 |
-| 5 | `right leg` | 3 | 9 |
-| **Total per mannequin** | | | **42 sensors** |
-| **Total (2 mannequins)** | | | **84 sensors** |
+| ID | Name | Sensor Points | Compatible Types | Sensors per Mannequin |
+|----|------|---------------|------------------|-----------------------|
+| 1 | `right arm` | 2 | temperature, pressure, vibration | 6 (2 × 3) |
+| 2 | `left arm` | 2 | temperature, pressure, vibration | 6 |
+| 3 | `back` | 4 | temperature, pressure, vibration | 12 |
+| 4 | `left leg` | 3 | temperature, pressure, vibration | 9 |
+| 5 | `right leg` | 3 | temperature, pressure, vibration | 9 |
+| 6 | `right elbow` | 1 | flex, strain | 2 (1 × 2) |
+| 7 | `left elbow` | 1 | flex, strain | 2 |
+| 8 | `right knee` | 1 | flex, strain | 2 |
+| 9 | `left knee` | 1 | flex, strain | 2 |
+| **Total per mannequin** | | | | **50 sensors** |
+| **Total (2 mannequins)** | | | | **100 sensors** |
 
 ---
 
@@ -602,13 +620,13 @@ curl http://localhost:3000/sensor
 
 ### Architecture Overview
 
-**Problem:** 42 sensors sending data every 5 seconds = 504 readings/min
+**Problem:** 50 sensors sending data every 5 seconds = 600 readings/min
 
 **Solution Implemented:**
 
 | Optimization | Before | After | Improvement |
 |--------------|--------|-------|-------------|
-| HTTP requests/5sec | 42 | 1 (batch) | **97.6% ↓** |
+| HTTP requests/5sec | 50 | 1 (batch) | **98% ↓** |
 | DB queries/request | 4 | 1 | **75% ↓** |
 | Total DB load/5sec | 168 queries | 1 query | **99.4% ↓** |
 | Write latency | 100-200ms | 20-40ms | **80% ↓** |
@@ -714,7 +732,7 @@ npm run seeder
 }
 ```
 
-**Valid sensor types:** `temperature`, `pressure`, `vibration`
+**Valid sensor types:** `temperature`, `pressure`, `vibration`, `flex`, `strain`
 
 ---
 
@@ -915,6 +933,17 @@ curl http://localhost:3000/sensor-reading/latest
 
 ## Changelog
 
+### v4.0 — Hardware Spec v2: New Sensors + Locations (May 2026)
+- ✅ Updated `pressure` unit: `kPa` → `N` (FSR RP-S40-ST, max 98.07 N, danger 45–70 N)
+- ✅ Updated `vibration` unit: `g` → `V` (Piezoelectric, max 3 V)
+- ✅ Added `flex` sensor type: `Ω` (Flex Sensor, max 125 000 Ω, danger 95 000–105 000 Ω)
+- ✅ Added `strain` sensor type: `µε` (Strain Gauge, max 20 000 µε, danger 12 000–20 000 µε)
+- ✅ Added 4 new locations: `right elbow`, `left elbow`, `right knee`, `left knee` (1 sensor point each)
+- ✅ Seeder splits seeding into Group A (old locations × old types) and Group B (new locations × new types)
+- ✅ Total sensors per mannequin: 42 → **50**; total (2 mannequins): 84 → **100**
+- ✅ LoRa endpoint updated to accept `flex` and `strain` payload fields and new locations
+- ✅ No schema changes — only data changes (idempotent seeder handles unit updates)
+
 ### v3.0 — Multi-Mannequin + LoRa (May 2026)
 - ✅ Added `mannequin` table to database — supports multiple physical mannequins
 - ✅ Added `mannequin_id` FK to `sensor` table — 84 sensors total (42 per mannequin)
@@ -944,5 +973,5 @@ For issues or questions:
 
 ---
 
-**Last Updated:** May 6, 2026  
-**API Version:** 3.0 (Multi-Mannequin + LoRa)
+**Last Updated:** May 8, 2026  
+**API Version:** 4.0 (Hardware Spec v2: New Sensors + Locations)
