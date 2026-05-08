@@ -11,6 +11,7 @@ import { Mannequin } from './mannequin/mannequin.entity';
 import { SeederModule } from './seeder/seeder.module';
 import { SeederService } from './seeder/seeder.service';
 import { SensorCacheModule } from './cache/sensor-cache.module';
+import { WebSocketModule } from './websocket/websocket.module';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -37,6 +38,7 @@ dotenv.config();
     }),
     TypeOrmModule.forFeature([Location, SensorType, Sensor, SensorReading, Mannequin]),
     SensorCacheModule,
+    WebSocketModule,
     SensorModule,
     SensorReadingModule,
     LoraModule,
