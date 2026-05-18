@@ -136,6 +136,32 @@ export class LoraService {
     };
   }
 
+  // Online if last reading within 60s, stale within 5 min, offline beyond that.
+  private static readonly ONLINE_THRESHOLD_S = 60;
+  private static readonly STALE_THRESHOLD_S  = 300;
+
+  async getHealth(mid?: number) {
+    const targets = mid != null ? [mid] : [1, 2];
+    const now = Date.now();
+
+    const items = await Promise.all(
+      targets.map(async (mannequinId) => {
+        const lastSeen = await this.sensorReadingService.getLastSeenByMannequin(mannequinId);
+        const secondsAgo = lastSeen ? Math.floor((now - lastSeen.getTime()) / 1000) : null;
+
+        let status: 'online' | 'stale' | 'offline';
+        if (secondsAgo == null) status = 'offline';
+        else if (secondsAgo <= LoraService.ONLINE_THRESHOLD_S) status = 'online';
+        else if (secondsAgo <= LoraService.STALE_THRESHOLD_S) status = 'stale';
+        else status = 'offline';
+
+        return { mannequinId, lastSeen, secondsAgo, status };
+      }),
+    );
+
+    return mid != null ? items[0] : { mannequins: items };
+  }
+
   // Supports TTS (The Things Stack) and Chirpstack uplink body formats
   private extractPayload(body: any): any {
     return (

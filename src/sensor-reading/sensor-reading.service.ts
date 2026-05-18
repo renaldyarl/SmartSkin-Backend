@@ -281,6 +281,18 @@ export class SensorReadingService {
     return result;
   }
 
+  async getLastSeenByMannequin(mannequinId: number): Promise<Date | null> {
+    const row = await this.sensorReadingRepository
+      .createQueryBuilder('reading')
+      .leftJoin('reading.sensor', 'sensor')
+      .where('sensor.mannequin_id = :mannequinId', { mannequinId })
+      .orderBy('reading.timestamp', 'DESC')
+      .limit(1)
+      .getOne();
+
+    return row?.timestamp ?? null;
+  }
+
   getCacheDebugInfo() {
     const cache = this.sensorCacheService['cache'];
 

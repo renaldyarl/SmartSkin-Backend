@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   Query,
   DefaultValuePipe,
@@ -21,5 +22,11 @@ export class LoraController {
     @Query('mid', new DefaultValuePipe(1), ParseIntPipe) mid: number,
   ) {
     return this.loraService.processPayload(body, mid);
+  }
+
+  @Get('health')
+  health(@Query('mid') mid?: string) {
+    const parsed = mid != null ? parseInt(mid, 10) : undefined;
+    return this.loraService.getHealth(Number.isFinite(parsed) ? parsed : undefined);
   }
 }
