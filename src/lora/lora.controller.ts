@@ -29,4 +29,10 @@ export class LoraController {
     const parsed = mid != null ? parseInt(mid, 10) : undefined;
     return this.loraService.getHealth(Number.isFinite(parsed) ? parsed : undefined);
   }
+
+  @Get('diagnostics')
+  diagnostics(@Query('mid') mid?: string) {
+    const parsed = mid != null ? parseInt(mid, 10) : undefined;
+    return this.loraService.getDiagnostics(Number.isFinite(parsed) ? parsed : undefined);
+  }
 }
