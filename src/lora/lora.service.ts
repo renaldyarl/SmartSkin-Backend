@@ -1,6 +1,15 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { SensorReadingService } from '../sensor-reading/sensor-reading.service';
 import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.dto';
+import {
+  LOCATION_BY_ID,
+  SENSOR_TYPE_BY_ID,
+  MAX_POINTS_BY_LOCATION_ID,
+  GROUP_A_LOCATION_IDS,
+  GROUP_A_TYPE_IDS,
+  GROUP_B_LOCATION_IDS,
+  GROUP_B_TYPE_IDS,
+} from './lora-codes';
 
 interface PacketTrace {
   mid: number;
@@ -9,59 +18,30 @@ interface PacketTrace {
   ttsToBeMs: number | null;   // arrivedAt - receivedAt
 }
 
-// Matches seeder: Group A (5 old locations) + Group B (4 new locations)
-const LOCATION_MAX_POINTS: Record<string, number> = {
-  right_arm:    2,
-  left_arm:     2,
-  back:         4,
-  right_leg:    3,
-  left_leg:     3,
-  right_elbow:  1,
-  left_elbow:   1,
-  right_knee:   1,
-  left_knee:    1,
-};
-
-// All 5 sensor types seeded in DB
-const ALL_SENSOR_TYPES = ['temperature', 'pressure', 'vibration', 'flex', 'strain'] as const;
-
-// ─── Payload formats accepted by POST /lora ───────────────────────────────────
+// ─── Payload format accepted by POST /lora — Format C (Compact Tuple) ─────────
 //
-// TTS wraps decoded_payload automatically. Both formats below land in
-// uplink_message.decoded_payload after extractPayload() unwraps the envelope.
+// TTS wraps decoded_payload automatically. extractPayload() unwraps the envelope.
 //
-// FORMAT A — Grouped (hardware-named keys, recommended for new firmware):
+// {
+//   "m": 1,                          // mannequin ID (required in payload)
+//   "r": [                           // non-empty array of reading tuples
+//     [3, 1, 1, 30.5],               // [locationId, sensorNumber, sensorTypeId, value]
+//     [3, 1, 2, 45.2],
+//     [3, 1, 3, 1.2]
+//   ]
+// }
 //
-//   Group A locations (right_arm | left_arm | back | right_leg | left_leg):
-//   {
-//     "location":     "right_arm",   // underscore, see LOCATION_MAX_POINTS
-//     "sensorNumber": 1,             // 1 – max for that location
-//     "mcp9808":    { "temperature": 36.5  },   // MCP9808  — °C  (max 50, danger ≥38)
-//     "fsr":        { "pressure":    45.2  },   // FSR      — N   (max 98.07, danger 45–70)
-//     "piezo":      { "vibration":   1.2   }    // Piezo    — V   (max 3)
-//   }
-//
-//   Group B locations (right_elbow | left_elbow | right_knee | left_knee):
-//   {
-//     "location":     "right_elbow",
-//     "sensorNumber": 1,
-//     "flexSensor":   { "flex":   95000.0 },    // Flex     — Ω   (max 125kΩ, danger 95k–105k)
-//     "strainGauge":  { "strain": 15000.0 }     // Strain   — µε  (max 20000, danger 12k–20k)
-//   }
-//
-// FORMAT B — Flat (legacy, kept for backward compatibility):
-//   {
-//     "location":     "right_arm",
-//     "sensorNumber": 1,
-//     "temperature":  36.5,
-//     "pressure":     45.2,
-//     "vibration":    1.2
-//   }
-//
-// All sensor fields are optional — at least one must be present.
-// One LoRa packet = one sensor point → up to N sensor_reading rows.
-// Query param ?mid=1|2 selects the mannequin (default 1).
+// ID mappings live in ./lora-codes.ts (must match seeder order).
+// Query param ?mid=1|2 is optional — if present, must equal payload "m".
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Legacy fields from removed Format A/B — used to emit a clear migration warning
+// when straggler firmware still sends the old shape.
+const LEGACY_FIELDS = [
+  'location', 'sensorNumber',
+  'mcp9808', 'fsr', 'piezo', 'flexSensor', 'strainGauge',
+  'temperature', 'pressure', 'vibration', 'flex', 'strain',
+];
 
 @Injectable()
 export class LoraService {
@@ -78,28 +58,37 @@ export class LoraService {
     private readonly sensorReadingService: SensorReadingService,
   ) {}
 
-  async processPayload(body: any, mid: number) {
+  async processPayload(body: any, midQuery?: number) {
     const receivedAt = this.extractReceivedAt(body);
     const payload = this.extractPayload(body);
     if (!payload) {
       throw new BadRequestException('Empty or unrecognized payload format');
     }
 
-    const { location, sensorNumber } = payload;
-
-    if (!location || !LOCATION_MAX_POINTS[location]) {
-      throw new BadRequestException(
-        `Invalid or missing "location". Valid values: ${Object.keys(LOCATION_MAX_POINTS).join(', ')}`,
+    // Help hardware team detect straggler firmware still emitting Format A/B.
+    if (LEGACY_FIELDS.some((f) => payload[f] !== undefined)) {
+      this.logger.warn(
+        'Legacy Format A/B payload detected — firmware/TTS decoder needs update to Format C',
       );
     }
 
-    const maxPoints = LOCATION_MAX_POINTS[location];
-    const pointNum = Number(sensorNumber);
-
-    if (!Number.isInteger(pointNum) || pointNum < 1 || pointNum > maxPoints) {
+    // --- Mannequin ID (m wajib di payload; ?mid= optional cross-check) ---
+    const midBody = Number(payload.m);
+    if (!Number.isInteger(midBody) || midBody < 1) {
       throw new BadRequestException(
-        `Invalid "sensorNumber" for location "${location}". Must be 1–${maxPoints}`,
+        'Missing or invalid "m" (mannequin ID required in payload, integer >= 1)',
       );
+    }
+    if (midQuery != null && midQuery !== midBody) {
+      throw new BadRequestException(
+        `Mannequin mismatch: payload m=${midBody} vs query mid=${midQuery}`,
+      );
+    }
+    const mid = midBody;
+
+    // --- Validate envelope ---
+    if (!Array.isArray(payload.r) || payload.r.length === 0) {
+      throw new BadRequestException('"r" must be a non-empty tuple array');
     }
 
     const readings: Array<{
@@ -109,38 +98,47 @@ export class LoraService {
       location: string;
     }> = [];
 
-    const push = (sensorType: string, raw: unknown) => {
-      const val = Number(raw);
-      if (raw != null && !isNaN(val)) {
-        readings.push({ sensorType, location, sensorNumber: pointNum, value: val });
+    for (let i = 0; i < payload.r.length; i++) {
+      const tuple = payload.r[i];
+      if (!Array.isArray(tuple) || tuple.length !== 4) {
+        throw new BadRequestException(
+          `r[${i}]: expected [locationId, sensorNumber, sensorTypeId, value]`,
+        );
       }
-    };
 
-    // ── Format A: grouped (hardware-named keys) ──────────────────────────────
-    if (
-      payload.mcp9808   != null || payload.fsr       != null ||
-      payload.piezo     != null || payload.flexSensor != null ||
-      payload.strainGauge != null
-    ) {
-      push('temperature', payload.mcp9808?.temperature);
-      push('pressure',    payload.fsr?.pressure);
-      push('vibration',   payload.piezo?.vibration);
-      push('flex',        payload.flexSensor?.flex);
-      push('strain',      payload.strainGauge?.strain);
+      const [locId, sNum, typeId, rawVal] = tuple;
+      const locationName = LOCATION_BY_ID[locId as number];
+      const sensorTypeName = SENSOR_TYPE_BY_ID[typeId as number];
+      const maxPoints = MAX_POINTS_BY_LOCATION_ID[locId as number];
 
-    // ── Format B: flat (legacy) ───────────────────────────────────────────────
-    } else {
-      for (const sensorType of ALL_SENSOR_TYPES) {
-        push(sensorType, payload[sensorType]);
+      if (!locationName) {
+        throw new BadRequestException(`r[${i}]: unknown locationId ${locId}`);
       }
-    }
+      if (!sensorTypeName) {
+        throw new BadRequestException(`r[${i}]: unknown sensorTypeId ${typeId}`);
+      }
 
-    if (readings.length === 0) {
-      throw new BadRequestException(
-        'Payload must contain at least one sensor value. ' +
-        'Grouped: mcp9808.temperature, fsr.pressure, piezo.vibration, flexSensor.flex, strainGauge.strain. ' +
-        'Flat: temperature, pressure, vibration, flex, strain.',
-      );
+      const sensorNumber = Number(sNum);
+      if (!Number.isInteger(sensorNumber) || sensorNumber < 1 || sensorNumber > maxPoints) {
+        throw new BadRequestException(
+          `r[${i}]: sensorNumber ${sNum} out of range 1..${maxPoints} for ${locationName}`,
+        );
+      }
+
+      const okA = GROUP_A_LOCATION_IDS.has(locId as number) && GROUP_A_TYPE_IDS.has(typeId as number);
+      const okB = GROUP_B_LOCATION_IDS.has(locId as number) && GROUP_B_TYPE_IDS.has(typeId as number);
+      if (!okA && !okB) {
+        throw new BadRequestException(
+          `r[${i}]: location ${locationName} does not support sensor type ${sensorTypeName}`,
+        );
+      }
+
+      const value = Number(rawVal);
+      if (!Number.isFinite(value)) {
+        throw new BadRequestException(`r[${i}]: value must be a finite number`);
+      }
+
+      readings.push({ sensorType: sensorTypeName, location: locationName, sensorNumber, value });
     }
 
     const dto = Object.assign(new BatchCreateSensorReadingDto(), { readings, mannequinId: mid });

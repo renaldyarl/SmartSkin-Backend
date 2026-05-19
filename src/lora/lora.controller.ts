@@ -4,8 +4,6 @@ import {
   Get,
   Body,
   Query,
-  DefaultValuePipe,
-  ParseIntPipe,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -17,11 +15,10 @@ export class LoraController {
 
   @Post()
   @HttpCode(HttpStatus.OK)
-  receive(
-    @Body() body: any,
-    @Query('mid', new DefaultValuePipe(1), ParseIntPipe) mid: number,
-  ) {
-    return this.loraService.processPayload(body, mid);
+  receive(@Body() body: any, @Query('mid') mid?: string) {
+    const parsed = mid != null ? parseInt(mid, 10) : undefined;
+    const midQuery = Number.isFinite(parsed) ? parsed : undefined;
+    return this.loraService.processPayload(body, midQuery);
   }
 
   @Get('health')

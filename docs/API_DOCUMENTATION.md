@@ -367,66 +367,76 @@ curl "http://localhost:3000/sensor-reading/temperature?page=1&limit=20&location=
 
 ### POST `/lora`
 
-Receive a decoded LoRa uplink packet from TTN or Chirpstack and store the sensor readings. One packet covers one sensor point at one location.
+Receive a decoded LoRa uplink packet from TTN or Chirpstack and store the sensor readings. Supports multiple readings per packet across different locations.
+
+> **BREAKING CHANGE — 2026-05-19:** Only **Format C (Compact Tuple)** is accepted. The old grouped/flat formats now return `400`. See `LORA_TTS_INTEGRATION.md` for migration steps.
 
 **Query Parameters:**
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `mid` | number | No | 1 | Mannequin ID (1 or 2) |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `mid` | number | No | Optional cross-check. If present, must equal payload `m`; otherwise 400. |
 
-**Request Body** — supports TTN v3 and Chirpstack envelope formats. The `decoded_payload` object must contain:
+**Request Body** — TTN v3 / Chirpstack envelope. The `decoded_payload` object must contain:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `location` | string | Yes | See valid locations table below |
-| `sensorNumber` | number | Yes | 1 – max points for the location (see table below) |
-| `temperature` | number | No | Value in °C — at least one sensor value required |
-| `pressure` | number | No | Value in N (newton) |
-| `vibration` | number | No | Value in V (volt) |
-| `flex` | number | No | Value in Ω (ohm) — only for elbow/knee locations |
-| `strain` | number | No | Value in µε (microstrain) — only for elbow/knee locations |
+| `m` | integer | Yes | Mannequin ID (1 or 2) |
+| `r` | array | Yes | Non-empty array of reading tuples `[locationId, sensorNumber, sensorTypeId, value]` |
 
-**Valid `sensorNumber` range per location:**
+**Sensor Type ID:**
 
-| location | sensorNumber | sensor types |
-|---|---|---|
-| `right_arm` | 1 – 2 | temperature, pressure, vibration |
-| `left_arm` | 1 – 2 | temperature, pressure, vibration |
-| `back` | 1 – 4 | temperature, pressure, vibration |
-| `right_leg` | 1 – 3 | temperature, pressure, vibration |
-| `left_leg` | 1 – 3 | temperature, pressure, vibration |
-| `right_elbow` | 1 | flex, strain |
-| `left_elbow` | 1 | flex, strain |
-| `right_knee` | 1 | flex, strain |
-| `left_knee` | 1 | flex, strain |
+| ID | Name | Unit |
+|----|------|------|
+| 1 | temperature | °C |
+| 2 | pressure | N |
+| 3 | vibration | V |
+| 4 | flex | Ω |
+| 5 | strain | µε |
 
-**Example — TTN v3 envelope (Mannequin 1):**
+**Location ID & sensorNumber range:**
+
+| ID | location | sensorNumber | allowed sensor type IDs |
+|----|----------|--------------|--------------------------|
+| 1 | right_arm | 1 – 2 | 1, 2, 3 |
+| 2 | left_arm | 1 – 2 | 1, 2, 3 |
+| 3 | back | 1 – 4 | 1, 2, 3 |
+| 4 | right_leg | 1 – 3 | 1, 2, 3 |
+| 5 | left_leg | 1 – 3 | 1, 2, 3 |
+| 6 | right_elbow | 1 | 4, 5 |
+| 7 | left_elbow | 1 | 4, 5 |
+| 8 | right_knee | 1 | 4, 5 |
+| 9 | left_knee | 1 | 4, 5 |
+
+**Example — TTN v3 envelope (Mannequin 1, 3 readings at `back` sensorNumber 1):**
 ```bash
-curl -X POST "http://localhost:3000/lora?mid=1" \
+curl -X POST "http://localhost:3000/lora" \
   -H "Content-Type: application/json" \
   -d '{
     "uplink_message": {
       "decoded_payload": {
-        "location": "right_arm",
-        "sensorNumber": 1,
-        "temperature": 36.5,
-        "pressure": 101.3,
-        "vibration": 0.05
+        "m": 1,
+        "r": [
+          [3, 1, 1, 36.5],
+          [3, 1, 2, 101.3],
+          [3, 1, 3, 0.05]
+        ]
       }
     }
   }'
 ```
 
-**Example — Chirpstack / raw decoded_payload (Mannequin 2):**
+**Example — Chirpstack / raw decoded_payload (Mannequin 2, Group B):**
 ```bash
-curl -X POST "http://localhost:3000/lora?mid=2" \
+curl -X POST "http://localhost:3000/lora" \
   -H "Content-Type: application/json" \
   -d '{
     "decoded_payload": {
-      "location": "back",
-      "sensorNumber": 3,
-      "temperature": 37.2
+      "m": 2,
+      "r": [
+        [6, 1, 4, 95000],
+        [6, 1, 5, 15000]
+      ]
     }
   }'
 ```
@@ -438,7 +448,7 @@ curl -X POST "http://localhost:3000/lora?mid=2" \
   "message": "success to store lora data",
   "data": {
     "saved": 3,
-    "locations": ["right arm"]
+    "locations": ["back"]
   }
 }
 ```
@@ -451,14 +461,26 @@ curl -X POST "http://localhost:3000/lora?mid=2" \
 
 **Error Responses:**
 ```json
-// 400 — missing or invalid location
-{ "statusCode": 400, "message": "Invalid or missing \"location\". Valid values: right_arm, left_arm, back, right_leg, left_leg, right_elbow, left_elbow, right_knee, left_knee" }
+// 400 — missing or invalid m
+{ "statusCode": 400, "message": "Missing or invalid \"m\" (mannequin ID required in payload, integer >= 1)" }
+
+// 400 — query mid mismatch
+{ "statusCode": 400, "message": "Mannequin mismatch: payload m=1 vs query mid=2" }
+
+// 400 — empty r
+{ "statusCode": 400, "message": "\"r\" must be a non-empty tuple array" }
+
+// 400 — tuple shape
+{ "statusCode": 400, "message": "r[0]: expected [locationId, sensorNumber, sensorTypeId, value]" }
+
+// 400 — unknown location ID
+{ "statusCode": 400, "message": "r[0]: unknown locationId 99" }
 
 // 400 — sensorNumber out of range
-{ "statusCode": 400, "message": "Invalid \"sensorNumber\" for location \"right_arm\". Must be 1–2" }
+{ "statusCode": 400, "message": "r[0]: sensorNumber 3 out of range 1..2 for right_arm" }
 
-// 400 — no sensor values
-{ "statusCode": 400, "message": "Payload must contain at least one of: temperature, pressure, vibration, flex, strain" }
+// 400 — group mismatch (e.g. arm + flex)
+{ "statusCode": 400, "message": "r[0]: location right_arm does not support sensor type flex" }
 ```
 
 ---
