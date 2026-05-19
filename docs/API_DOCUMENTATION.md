@@ -42,33 +42,19 @@ Bulk insert readings from all sensors in a single request. **Optimized for high-
 }
 ```
 
-**Example Request:**
-```bash
-curl -X POST http://localhost:3000/sensor-reading/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "mannequinId": 1,
-    "readings": [
-      {
-        "sensorType": "temperature",
-        "sensorNumber": 1,
-        "value": 36.5,
-        "location": "right_arm"
-      },
-      {
-        "sensorType": "temperature",
-        "sensorNumber": 2,
-        "value": 36.8,
-        "location": "left_arm"
-      },
-      {
-        "sensorType": "pressure",
-        "sensorNumber": 1,
-        "value": 101.3,
-        "location": "back"
-      }
-    ]
-  }'
+**Postman:**
+- Method: `POST`
+- URL: `http://localhost:3000/sensor-reading/batch`
+- Body → raw → JSON:
+```json
+{
+  "mannequinId": 1,
+  "readings": [
+    { "sensorType": "temperature", "sensorNumber": 1, "value": 36.5,  "location": "right_arm" },
+    { "sensorType": "temperature", "sensorNumber": 2, "value": 36.8,  "location": "left_arm"  },
+    { "sensorType": "pressure",    "sensorNumber": 1, "value": 101.3, "location": "back"      }
+  ]
+}
 ```
 
 **Success Response (201):**
@@ -106,25 +92,18 @@ Insert readings for a single location. **Legacy endpoint, use batch for better p
 }
 ```
 
-**Example Request:**
-```bash
-curl -X POST http://localhost:3000/sensor-reading \
-  -H "Content-Type: application/json" \
-  -d '{
-    "location": "right_arm",
-    "readings": [
-      {
-        "sensorType": "temperature",
-        "sensorNumber": 1,
-        "value": 36.5
-      },
-      {
-        "sensorType": "temperature",
-        "sensorNumber": 2,
-        "value": 36.8
-      }
-    ]
-  }'
+**Postman:**
+- Method: `POST`
+- URL: `http://localhost:3000/sensor-reading`
+- Body → raw → JSON:
+```json
+{
+  "location": "right_arm",
+  "readings": [
+    { "sensorType": "temperature", "sensorNumber": 1, "value": 36.5 },
+    { "sensorType": "temperature", "sensorNumber": 2, "value": 36.8 }
+  ]
+}
 ```
 
 **Success Response (201):**
@@ -147,14 +126,10 @@ Get the latest reading for each sensor type. **Used by frontend dashboard for re
 |-----------|------|----------|---------|-------------|
 | `mannequin_id` | number | No | 1 | Mannequin to query (1 or 2) |
 
-**Example Request:**
-```bash
-# Mannequin 1 (default)
-curl http://localhost:3000/sensor-reading/latest
-
-# Mannequin 2
-curl "http://localhost:3000/sensor-reading/latest?mannequin_id=2"
-```
+**Postman:**
+- Method: `GET`
+- URL (Mannequin 1, default): `http://localhost:3000/sensor-reading/latest`
+- URL (Mannequin 2): `http://localhost:3000/sensor-reading/latest?mannequin_id=2`
 
 **Success Response (200):**
 ```json
@@ -222,14 +197,10 @@ Get paginated sensor readings with filters. **Used by frontend detail page for c
 | `endDate` | string | No | - | Filter by end date (ISO 8601) |
 | `mannequin_id` | number | No | 1 | Mannequin to query (1 or 2) |
 
-**Example Request:**
-```bash
-# Mannequin 1 (default)
-curl "http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20"
-
-# Mannequin 2
-curl "http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20&mannequin_id=2"
-```
+**Postman:**
+- Method: `GET`
+- URL (Mannequin 1, default): `http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20`
+- URL (Mannequin 2): `http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20&mannequin_id=2`
 
 **Success Response (200):**
 ```json
@@ -286,10 +257,9 @@ setInterval(async () => {
 
 Get all available sensor types.
 
-**Example Request:**
-```bash
-curl http://localhost:3000/sensor-reading/sensor-types
-```
+**Postman:**
+- Method: `GET`
+- URL: `http://localhost:3000/sensor-reading/sensor-types`
 
 **Success Response (200):**
 ```json
@@ -324,10 +294,9 @@ Get paginated readings for a specific sensor type.
 | `startDate` | string | No | - | Filter by start date (ISO 8601) |
 | `endDate` | string | No | - | Filter by end date (ISO 8601) |
 
-**Example Request:**
-```bash
-curl "http://localhost:3000/sensor-reading/temperature?page=1&limit=20&location=right_arm"
-```
+**Postman:**
+- Method: `GET`
+- URL: `http://localhost:3000/sensor-reading/temperature?page=1&limit=20&location=right_arm`
 
 **Success Response (200):**
 ```json
@@ -408,37 +377,39 @@ Receive a decoded LoRa uplink packet from TTN or Chirpstack and store the sensor
 | 8 | right_knee | 1 | 4, 5 |
 | 9 | left_knee | 1 | 4, 5 |
 
-**Example — TTN v3 envelope (Mannequin 1, 3 readings at `back` sensorNumber 1):**
-```bash
-curl -X POST "http://localhost:3000/lora" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "uplink_message": {
-      "decoded_payload": {
-        "m": 1,
-        "r": [
-          [3, 1, 1, 36.5],
-          [3, 1, 2, 101.3],
-          [3, 1, 3, 0.05]
-        ]
-      }
-    }
-  }'
-```
-
-**Example — Chirpstack / raw decoded_payload (Mannequin 2, Group B):**
-```bash
-curl -X POST "http://localhost:3000/lora" \
-  -H "Content-Type: application/json" \
-  -d '{
+**Postman — TTN v3 envelope (Mannequin 1, 3 readings at `back` sensorNumber 1):**
+- Method: `POST`
+- URL: `http://localhost:3000/lora`
+- Body → raw → JSON:
+```json
+{
+  "uplink_message": {
     "decoded_payload": {
-      "m": 2,
+      "m": 1,
       "r": [
-        [6, 1, 4, 95000],
-        [6, 1, 5, 15000]
+        [3, 1, 1, 36.5],
+        [3, 1, 2, 101.3],
+        [3, 1, 3, 0.05]
       ]
     }
-  }'
+  }
+}
+```
+
+**Postman — Chirpstack / raw decoded_payload (Mannequin 2, Group B):**
+- Method: `POST`
+- URL: `http://localhost:3000/lora`
+- Body → raw → JSON:
+```json
+{
+  "decoded_payload": {
+    "m": 2,
+    "r": [
+      [6, 1, 4, 95000],
+      [6, 1, 5, 15000]
+    ]
+  }
+}
 ```
 
 **Success Response (200):**
@@ -500,15 +471,16 @@ Create a new sensor.
 }
 ```
 
-**Example Request:**
-```bash
-curl -X POST http://localhost:3000/sensor \
-  -H "Content-Type: application/json" \
-  -d '{
-    "externalId": 5,
-    "sensorTypeId": 1,
-    "locationId": 1
-  }'
+**Postman:**
+- Method: `POST`
+- URL: `http://localhost:3000/sensor`
+- Body → raw → JSON:
+```json
+{
+  "externalId": 5,
+  "sensorTypeId": 1,
+  "locationId": 1
+}
 ```
 
 **Success Response (201):**
@@ -533,10 +505,9 @@ curl -X POST http://localhost:3000/sensor \
 
 Get all sensors.
 
-**Example Request:**
-```bash
-curl http://localhost:3000/sensor
-```
+**Postman:**
+- Method: `GET`
+- URL: `http://localhost:3000/sensor`
 
 **Success Response (200):**
 ```json
@@ -928,32 +899,51 @@ npm run start:dev
 npm run start:prod
 ```
 
-### 5. Test Endpoints
-```bash
-# Check health
-curl http://localhost:3000/sensor-reading/sensor-types
+### 5. Test Endpoints (Postman)
 
-# Send test data
-curl -X POST http://localhost:3000/sensor-reading/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "readings": [
-      {
-        "sensorType": "temperature",
-        "sensorNumber": 1,
-        "value": 36.5,
-        "location": "right_arm"
-      }
-    ]
-  }'
+**Check available sensor types:**
+- `GET http://localhost:3000/sensor-reading/sensor-types`
 
-# Get latest readings
-curl http://localhost:3000/sensor-reading/latest
+**Send test data via batch:**
+- `POST http://localhost:3000/sensor-reading/batch`
+- Body → raw → JSON:
+```json
+{
+  "readings": [
+    { "sensorType": "temperature", "sensorNumber": 1, "value": 36.5, "location": "right_arm" }
+  ]
+}
 ```
+
+**Send test data via LoRa (Format C):**
+- `POST http://localhost:3000/lora`
+- Body → raw → JSON:
+```json
+{
+  "decoded_payload": {
+    "m": 1,
+    "r": [[1, 1, 1, 36.5]]
+  }
+}
+```
+
+**Get latest readings:**
+- `GET http://localhost:3000/sensor-reading/latest`
+
+**LoRa health check:**
+- `GET http://localhost:3000/lora/health`
 
 ---
 
 ## Changelog
+
+### v5.0 — LoRa Format C Migration (2026-05-19) — BREAKING
+- 🔥 **BREAKING:** `POST /lora` now only accepts Format C (compact tuple `[locationId, sensorNumber, sensorTypeId, value]`). Format A (grouped) and Format B (flat) removed.
+- ✅ Payload size drastically reduced (numeric IDs replace string keys) — better for LoRa airtime.
+- ✅ Mannequin ID moved into payload field `m` (required). Query `?mid=` is now optional cross-check (must match payload, otherwise 400).
+- ✅ Group consistency validation: Group A locations (arm/back/leg) only accept temperature/pressure/vibration; Group B (elbow/knee) only flex/strain.
+- ✅ New file `backend-sensor/src/lora/lora-codes.ts` — single source of truth for ID mapping.
+- ⚠️ Firmware / TTS `decodeUplink()` must be updated before deploy. See `LORA_TTS_INTEGRATION.md` for migration guide.
 
 ### v4.0 — Hardware Spec v2: New Sensors + Locations (May 2026)
 - ✅ Updated `pressure` unit: `kPa` → `N` (FSR RP-S40-ST, max 98.07 N, danger 45–70 N)
@@ -995,5 +985,5 @@ For issues or questions:
 
 ---
 
-**Last Updated:** May 8, 2026  
-**API Version:** 4.0 (Hardware Spec v2: New Sensors + Locations)
+**Last Updated:** May 19, 2026  
+**API Version:** 5.0 (LoRa Format C Migration)
