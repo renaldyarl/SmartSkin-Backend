@@ -7,13 +7,16 @@ import {
   ValidationPipe,
   Query,
   Param,
+  Res,
   DefaultValuePipe,
   ParseIntPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { SensorReadingService } from './sensor-reading.service';
 import { CreateSensorReadingDto } from '../dto/create-sensor-reading.dto';
 import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.dto';
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
+import { ExportSensorReadingQueryDto } from '../dto/export-sensor-reading-query.dto';
 import { SensorRealtimeStats } from '../dto/sensor-realtime-stats.dto';
 
 @Controller('sensor-reading')
@@ -53,6 +56,29 @@ export class SensorReadingController {
   @Get('debug/cache')
   getCacheStatus() {
     return this.sensorReadingService.getCacheDebugInfo();
+  }
+
+  // NOTE: must stay above the ':sensorTypeName' catch-all route below,
+  // otherwise "export" would be captured as a sensor type name.
+  @Get('export')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async exportReadings(
+    @Query() query: ExportSensorReadingQueryDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const csv = await this.sensorReadingService.exportReadingsCsv(query);
+
+    const mid = query.mannequin_id ?? 1;
+    const typePart = query.sensorType ?? 'all';
+    const locPart = (query.location ?? 'all').replace(/\s+/g, '_');
+    const filename = `log_${query.date}_m${mid}_${typePart}_${locPart}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    res.send(csv);
   }
 
   @Get(':sensorTypeName')

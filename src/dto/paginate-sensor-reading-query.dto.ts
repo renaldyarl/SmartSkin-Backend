@@ -25,6 +25,12 @@ export class PaginateSensorReadingQueryDto {
   sensorType?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sensorNumber?: number;
+
+  @IsOptional()
   @IsString()
   location?: string;
 

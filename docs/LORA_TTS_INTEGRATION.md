@@ -126,33 +126,85 @@ Format B yang lama:
 
 ---
 
-## Contoh TTS Decoder (`decodeUplink`) — Format C
+## Wire Layout Firmware Aktual (`skin_ide/skin_putih.ino`)
 
-Paste fungsi ini di TTS console → Application → Payload Formatters → Uplink. Wire layout di bawah cuma contoh; sesuaikan dengan firmware aktual.
+Source firmware: `skin_ide/skin_putih.ino`, fungsi `sendLoRaSkinUplink()` (`:515`), TX call di `node.sendReceive(payload, idx, 1)` (`:664`) — FPort 1.
+
+**Payload: 3–11 bytes, big-endian, variable length berdasarkan mask byte.**
+
+```
+byte[0] = locationIndex   0..8   ⚠ ZERO-BASED — decoder WAJIB +1 untuk Format C (1..9)
+byte[1] = sensorNumber    1..N   (1-based, sesuai Format C)
+byte[2] = mask byte:
+            0x01 = temperature  → int16  BE, value × 100         (2 bytes)
+            0x02 = pressure     → uint16 BE, value × 10          (2 bytes)
+            0x04 = vibration    → uint16 BE, value × 1000        (2 bytes)
+            0x08 = flex         → uint32 BE, raw Ω (no scale)    (4 bytes)
+            0x10 = strain       → uint32 BE, raw µε (no scale)   (4 bytes)
+byte[3..N] = field bytes, urutan = mask bit LSB → MSB
+```
+
+**Group A** (locationIndex 0..4 = arm/back/leg): emit bit 0/1/2 → temp + pressure + vibration
+**Group B** (locationIndex 5..8 = elbow/knee): emit bit 3/4 → flex + strain
+
+**⚠ Quirk (skin_putih.ino:542–545)**: kalau `pressureN > 0` ATAU `vibVolt > 0`, firmware set mask `0x02 | 0x04` **bareng**. Akibatnya decoder kadang dapat field `pressure=0` atau `vibration=0` yang valid (no contact / no vibration). **Decoder emit dua-duanya** — backend accept 0 sebagai finite reading.
+
+### DevEUI → Mannequin ID mapping
+
+| DevEUI | Mannequin ID (`m` di Format C) | Source firmware |
+|--------|--------------------------------|-----------------|
+| `AD8121DAD12451E1` | **2** | `skin_ide/skin_putih.ino:40` |
+| `TBD` | 1 | (firmware mannequin 1 belum di-audit) |
+
+---
+
+## TTS Decoder (`decodeUplink`) — match firmware aktual
+
+Paste di TTS Console → Application → Payload Formatters → Uplink. Decoder ini match wire layout di atas (verified per audit 2026-05-19).
 
 ```javascript
 function decodeUplink(input) {
   var bytes = input.bytes;
 
-  function getInt16(b, i) {
-    var v = (b[i] << 8) | b[i + 1];
-    return v & 0x8000 ? v - 0x10000 : v;
+  // DevEUI → mannequin ID (uppercase hex, no separators)
+  var EUI_TO_MANNEQUIN = {
+    'AD8121DAD12451E1': 2,
+    // 'XXXXXXXXXXXXXXXX': 1,  // mannequin 1 — TBD setelah audit firmware-nya
+  };
+
+  function u16(b, i) { return (b[i] << 8) | b[i + 1]; }
+  function i16(b, i) { var v = u16(b, i); return v & 0x8000 ? v - 0x10000 : v; }
+  function u32(b, i) {
+    // Hindari bitshift di byte 0 karena JS bitwise ops 32-bit signed.
+    return (b[i] * 0x1000000) + ((b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
   }
 
-  // Contoh wire layout:
-  //   [0]      mannequin ID            (1 atau 2)
-  //   [1]      jumlah readings (N)
-  //   [2..]    per reading (5 bytes):  locId(1) sensorNumber(1) sensorTypeId(1) value×100(int16 BE, 2 bytes)
-  var m = bytes[0];
-  var n = bytes[1];
+  if (bytes.length < 3) {
+    return { data: null, warnings: [], errors: ['Payload too short (<3 bytes)'] };
+  }
+
+  var locationId = bytes[0] + 1;   // 0-based firmware → 1-based Format C
+  var sensorNum  = bytes[1];
+  var mask       = bytes[2];
+  var off = 3;
   var r = [];
-  for (var i = 0; i < n; i++) {
-    var off = 2 + i * 5;
-    var locId = bytes[off];
-    var sNum  = bytes[off + 1];
-    var tId   = bytes[off + 2];
-    var val   = getInt16(bytes, off + 3) / 100.0;
-    r.push([locId, sNum, tId, val]);
+
+  // Urutan field: LSB → MSB sesuai builder firmware (skin_putih.ino:560–607)
+  if (mask & 0x01) { r.push([locationId, sensorNum, 1, i16(bytes, off) / 100.0]);   off += 2; }
+  if (mask & 0x02) { r.push([locationId, sensorNum, 2, u16(bytes, off) / 10.0]);    off += 2; }
+  if (mask & 0x04) { r.push([locationId, sensorNum, 3, u16(bytes, off) / 1000.0]);  off += 2; }
+  if (mask & 0x08) { r.push([locationId, sensorNum, 4, u32(bytes, off)]);           off += 4; }
+  if (mask & 0x10) { r.push([locationId, sensorNum, 5, u32(bytes, off)]);           off += 4; }
+
+  // DevEUI lookup — verify field name di TTS console (bisa input.metadata.dev_eui
+  // atau input.end_device_ids.dev_eui tergantung versi TTS).
+  var eui = '';
+  if (input.metadata && input.metadata.dev_eui) eui = input.metadata.dev_eui;
+  else if (input.end_device_ids && input.end_device_ids.dev_eui) eui = input.end_device_ids.dev_eui;
+
+  var m = EUI_TO_MANNEQUIN[eui.toUpperCase()];
+  if (!m) {
+    return { data: null, warnings: [], errors: ['Unknown DevEUI: ' + eui] };
   }
 
   return {
@@ -163,7 +215,27 @@ function decodeUplink(input) {
 }
 ```
 
-> **Catatan**: scale factor `/100` cocok untuk temperature/pressure/vibration. Untuk `flex` (sampai 125kΩ) dan `strain` (sampai 20k µε), pakai int24/int32 + scale factor yang sesuai. Sepakat sama tim hardware soal byte layout final.
+> **Catatan deploy**: kalau API `input.metadata.dev_eui` / `input.end_device_ids.dev_eui` tidak available di TTS version yang lo pakai, alternatif: deploy decoder **per-device** di TTS (override payload formatter per end-device) dan hardcode `var m = 2;` di decoder mannequin 2.
+
+### Sanity check via TTS Payload Formatter "Test"
+
+Input hex (Group A, back, sensor 1, temp=30.5°C, pressure=45.2N, vibration=1.2V):
+```
+02 01 07 0B EE 01 C4 04 B0
+```
+Expected decoded output:
+```json
+{ "m": 2, "r": [[3,1,1,30.5],[3,1,2,45.2],[3,1,3,1.2]] }
+```
+
+Input hex (Group B, right_elbow, sensor 1, flex=95000Ω, strain=15000µε):
+```
+05 01 18 00 01 73 18 00 00 3A 98
+```
+Expected decoded output:
+```json
+{ "m": 2, "r": [[6,1,4,95000],[6,1,5,15000]] }
+```
 
 ---
 

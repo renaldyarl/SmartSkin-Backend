@@ -8,6 +8,7 @@ import { Sensor } from '../sensor/sensor.entity';
 import { Location } from '../location/location.entity';
 import { SensorType } from '../sensor/sensor-type.entity';
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
+import { ExportSensorReadingQueryDto } from '../dto/export-sensor-reading-query.dto';
 import { PaginatedResponse } from '../dto/pagination-response.interface';
 import { SensorCacheService } from '../cache/sensor-cache.service';
 import { SensorRealtimeStats } from '../dto/sensor-realtime-stats.dto';
@@ -183,7 +184,7 @@ export class SensorReadingService {
   async findBySensorType(
     query: PaginateSensorReadingQueryDto,
   ): Promise<PaginatedResponse<any>> {
-    const { page = 1, limit = 10, sensorType, location, startDate, endDate, mannequin_id: mannequinId = 1 } =
+    const { page = 1, limit = 10, sensorType, sensorNumber, location, startDate, endDate, mannequin_id: mannequinId = 1 } =
       query;
 
     const skip = (page - 1) * limit;
@@ -199,6 +200,11 @@ export class SensorReadingService {
     // Filter by sensor type
     if (sensorType) {
       queryBuilder.andWhere('sensorType.name = :sensorType', { sensorType });
+    }
+
+    // Filter by individual physical sensor (point number within location/type)
+    if (sensorNumber) {
+      queryBuilder.andWhere('sensor.externalId = :sensorNumber', { sensorNumber });
     }
 
     // Filter by location
@@ -333,7 +339,7 @@ export class SensorReadingService {
       );
     }
 
-    const { page = 1, limit = 10, location, startDate, endDate } = query;
+    const { page = 1, limit = 10, sensorNumber, location, startDate, endDate } = query;
 
     const skip = (page - 1) * limit;
 
@@ -343,6 +349,11 @@ export class SensorReadingService {
       .leftJoinAndSelect('sensor.sensorType', 'sensorType')
       .leftJoinAndSelect('sensor.location', 'location')
       .where('sensorType.id = :sensorTypeId', { sensorTypeId: sensorType.id });
+
+    // Filter by individual physical sensor (point number within location/type)
+    if (sensorNumber) {
+      queryBuilder.andWhere('sensor.externalId = :sensorNumber', { sensorNumber });
+    }
 
     // Filter by location
     if (location) {
@@ -384,5 +395,100 @@ export class SensorReadingService {
         totalPages,
       },
     };
+  }
+
+  // Danger thresholds per sensor type (mirrors the frontend SENSOR_META limits)
+  private static readonly DANGER_THRESHOLD: Record<string, number> = {
+    temperature: 38,
+    pressure: 70,
+    vibration: 3,
+    flex: 105000,
+    strain: 20000,
+  };
+
+  private escapeCsv(value: string | number): string {
+    return `"${String(value).replace(/"/g, '""')}"`;
+  }
+
+  async exportReadingsCsv(query: ExportSensorReadingQueryDto): Promise<string> {
+    const { date, mannequin_id: mannequinId = 1, sensorType, location } = query;
+
+    // Single calendar day → [00:00:00.000, 23:59:59.999] in server local time
+    const startDate = new Date(`${date}T00:00:00.000`);
+    const endDate = new Date(`${date}T23:59:59.999`);
+
+    if (Number.isNaN(startDate.getTime())) {
+      throw new BadRequestException(`Invalid date "${date}"`);
+    }
+
+    const queryBuilder = this.sensorReadingRepository
+      .createQueryBuilder('reading')
+      .leftJoinAndSelect('reading.sensor', 'sensor')
+      .leftJoinAndSelect('sensor.sensorType', 'sensorType')
+      .leftJoinAndSelect('sensor.location', 'location')
+      .leftJoinAndSelect('sensor.mannequin', 'mannequin')
+      .where('sensor.mannequin_id = :mannequinId', { mannequinId })
+      .andWhere('reading.timestamp >= :startDate', { startDate })
+      .andWhere('reading.timestamp <= :endDate', { endDate });
+
+    if (sensorType) {
+      queryBuilder.andWhere('sensorType.name = :sensorType', { sensorType });
+    }
+
+    if (location) {
+      const locationName = location.replace(/_/g, ' ');
+      queryBuilder.andWhere('location.name = :location', {
+        location: locationName,
+      });
+    }
+
+    // Chronological order is friendlier for an exported log
+    queryBuilder.orderBy('reading.timestamp', 'ASC');
+
+    const rows = await queryBuilder.getMany();
+
+    const header = [
+      'No',
+      'Timestamp',
+      'Mannequin',
+      'Location',
+      'Sensor Type',
+      'Sensor No',
+      'Value',
+      'Unit',
+      'Status',
+    ];
+
+    const lines: string[] = [
+      header.map((h) => this.escapeCsv(h)).join(','),
+    ];
+
+    rows.forEach((reading, index) => {
+      const typeName = reading.sensor?.sensorType?.name ?? '';
+      const value = Number(reading.value);
+      const threshold = SensorReadingService.DANGER_THRESHOLD[typeName];
+      const status =
+        Number.isFinite(value) && Number.isFinite(threshold) && value > threshold
+          ? 'OVER'
+          : 'OK';
+
+      const cells = [
+        index + 1,
+        new Date(reading.timestamp).toISOString(),
+        reading.sensor?.mannequin?.name ?? `Mannequin ${mannequinId}`,
+        reading.sensor?.location?.name ?? '',
+        typeName,
+        reading.sensor?.externalId ?? '',
+        Number.isFinite(value) ? value : '',
+        reading.sensor?.sensorType?.unit ?? '',
+        status,
+      ];
+
+      lines.push(cells.map((c) => this.escapeCsv(c)).join(','));
+    });
+
+    // Prepend BOM (U+FEFF) so Excel reads UTF-8 (°C, µε, Ω) correctly
+    const bom = String.fromCharCode(0xfeff);
+    return bom + lines.join('\r\n');
   }
 }
