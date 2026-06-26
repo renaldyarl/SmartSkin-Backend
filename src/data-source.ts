@@ -5,6 +5,7 @@ import { SensorType } from './sensor/sensor-type.entity';
 import { Sensor } from './sensor/sensor.entity';
 import { SensorReading } from './sensor-reading/sensor-reading.entity';
 import { Mannequin } from './mannequin/mannequin.entity';
+import { User } from './auth/user.entity';
 
 dotenv.config();
 
@@ -15,7 +16,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'postgres',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'postgres',
-  entities: [Location, SensorType, Sensor, SensorReading, Mannequin],
+  entities: [Location, SensorType, Sensor, SensorReading, Mannequin, User],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],
   synchronize: false,

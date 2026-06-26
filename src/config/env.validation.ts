@@ -35,6 +35,10 @@ class EnvironmentVariables {
   @IsNotEmpty()
   @IsBoolean()
   DB_LOGGING: boolean;
+
+  @IsNotEmpty()
+  @IsString()
+  JWT_SECRET: string;
 }
 
 export function validate(config: Record<string, unknown>) {

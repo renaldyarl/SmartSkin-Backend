@@ -12,6 +12,8 @@ import { SeederModule } from './seeder/seeder.module';
 import { SeederService } from './seeder/seeder.service';
 import { SensorCacheModule } from './cache/sensor-cache.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { AuthModule } from './auth/auth.module';
+import { User } from './auth/user.entity';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -25,7 +27,7 @@ dotenv.config();
       username: process.env.DB_USERNAME || 'postgres',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'postgres',
-      entities: [Location, SensorType, Sensor, SensorReading, Mannequin],
+      entities: [Location, SensorType, Sensor, SensorReading, Mannequin, User],
       synchronize: process.env.DB_SYNCHRONIZATION === 'true',
       logging: process.env.DB_LOGGING === 'true',
       // Connection pool optimization for high-write workload (42 sensors/5sec)
@@ -39,6 +41,7 @@ dotenv.config();
     TypeOrmModule.forFeature([Location, SensorType, Sensor, SensorReading, Mannequin]),
     SensorCacheModule,
     WebSocketModule,
+    AuthModule,
     SensorModule,
     SensorReadingModule,
     LoraModule,

@@ -8,16 +8,88 @@
 | **Framework** | NestJS 11 + TypeORM + PostgreSQL |
 | **Content-Type** | `application/json` |
 | **CORS** | Enabled (origin: `http://ss.stas-rg.com/`) |
+| **Auth** | **JWT Bearer (since v7.0)** — most endpoints require `Authorization: Bearer <token>`. Hardware ingest + login + health are public. |
 
 ---
 
 ## Table of Contents
 
-1. [Sensor Readings API](#sensor-readings-api)
-2. [Sensor Management API](#sensor-management-api)
-3. [Database Schema](#database-schema)
-4. [Performance Optimization](#performance-optimization)
-5. [Error Responses](#error-responses)
+1. [Authentication API](#authentication-api)
+2. [Sensor Readings API](#sensor-readings-api)
+3. [Sensor Management API](#sensor-management-api)
+4. [Database Schema](#database-schema)
+5. [Performance Optimization](#performance-optimization)
+6. [Error Responses](#error-responses)
+
+---
+
+## Authentication API
+
+Since **v7.0** the API is gated by a **global JWT guard**. Every endpoint requires a valid `Authorization: Bearer <token>` header **except** the ones explicitly marked public (login, hardware ingest, health, root hello). Calling a protected endpoint without/with an invalid token returns **`401`**.
+
+**Token lifetime:** `JWT_EXPIRES_IN` (default `12h`). After expiry, re-login.
+
+### Public vs protected (quick map)
+
+| Endpoint | Auth |
+|----------|------|
+| `POST /auth/login` | 🔓 Public |
+| `POST /lora`, `GET /lora/health` | 🔓 Public (hardware / alive badge) |
+| `POST /sensor-reading/batch`, `POST /sensor-reading` | 🔓 Public (hardware ingest) |
+| `GET /` | 🔓 Public |
+| **everything else** (all `GET /sensor-reading/*`, `GET/POST /sensor`, `GET /lora/diagnostics`, `GET /auth/me`) | 🔒 **Bearer token required** |
+
+### 1. POST `/auth/login`
+
+Exchange username + password for a JWT.
+
+**Postman:**
+- Method: `POST`
+- URL: `http://localhost:3000/auth/login`
+- Body → raw → JSON:
+```json
+{
+  "username": "stas-rg",
+  "password": "stasrg123"
+}
+```
+
+**Success Response (200/201):**
+```json
+{
+  "access_token": "eyJhbGciOiInR5cCI6...",
+  "user": { "username": "stas-rg", "displayName": "Admin STAS-RG", "role": "admin" }
+}
+```
+
+**Error Response (401):**
+```json
+{ "statusCode": 401, "message": "Invalid credentials", "error": "Unauthorized" }
+```
+
+> The 2 admin accounts (`stas-rg`, `pindad`) are created by `npm run seed:admin` (passwords come from env — see Environment Variables).
+
+### 2. GET `/auth/me`
+
+Return the current token's user. Requires a Bearer token.
+
+**Postman:**
+- Method: `GET`
+- URL: `http://localhost:3000/auth/me`
+- Headers: `Authorization: Bearer <access_token>`
+
+**Success Response (200):**
+```json
+{ "username": "stas-rg", "displayName": "Admin STAS-RG", "role": "admin" }
+```
+
+### Calling protected endpoints
+
+Add the header to any protected request:
+```
+Authorization: Bearer <access_token>
+```
+In Postman: tab **Authorization → Type: Bearer Token → paste the `access_token`**.
 
 ---
 
@@ -192,6 +264,7 @@ Get paginated sensor readings with filters. **Used by frontend detail page for c
 | `page` | number | No | 1 | Page number (1-based) |
 | `limit` | number | No | 10 | Items per page (max recommended: 50) |
 | `sensorType` | string | No | - | Filter by sensor type |
+| `sensorNumber` | number | No | - | Filter by a single physical sensor point (= `sensor.externalId`, e.g. `2`). Use with `sensorType` + `location` to isolate one sensor. |
 | `location` | string | No | - | Filter by location (use underscore: `right_arm`) |
 | `startDate` | string | No | - | Filter by start date (ISO 8601) |
 | `endDate` | string | No | - | Filter by end date (ISO 8601) |
@@ -201,6 +274,7 @@ Get paginated sensor readings with filters. **Used by frontend detail page for c
 - Method: `GET`
 - URL (Mannequin 1, default): `http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20`
 - URL (Mannequin 2): `http://localhost:3000/sensor-reading/paginated?sensorType=temperature&location=right_arm&page=1&limit=20&mannequin_id=2`
+- URL (single sensor point — drill to one physical sensor): `http://localhost:3000/sensor-reading/paginated?sensorType=pressure&location=right_arm&sensorNumber=2&mannequin_id=1&page=1&limit=10`
 
 **Success Response (200):**
 ```json
@@ -253,7 +327,46 @@ setInterval(async () => {
 
 ---
 
-### 5. GET `/sensor-reading/sensor-types`
+### 5. GET `/sensor-reading/export`
+
+Export **all** readings for a **single calendar day** as a downloadable **CSV** file. **Used by the frontend Logs page → "Export CSV" button.** Returns the whole matching set (no pagination cap), ordered chronologically — handy as a report/thesis attachment.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `date` | string | **Yes** | - | Day to export, format `YYYY-MM-DD`. Covers `[00:00:00.000 → 23:59:59.999]` in **server local time**. |
+| `mannequin_id` | number | No | 1 | Mannequin to query (1 or 2) |
+| `sensorType` | string | No | (all) | Optional filter by sensor type |
+| `location` | string | No | (all) | Optional filter by location (use underscore: `right_arm`) |
+
+**Response:** raw CSV (not JSON). Headers:
+- `Content-Type: text/csv; charset=utf-8`
+- `Content-Disposition: attachment; filename="log_<date>_m<mid>_<type>_<loc>.csv"` (`<type>`/`<loc>` fall back to `all` when the filter is omitted)
+
+The body is prefixed with a UTF-8 **BOM** so Excel renders `°C`, `µε`, `Ω` correctly, and uses CRLF line endings.
+
+**CSV columns:** `No, Timestamp, Mannequin, Location, Sensor Type, Sensor No, Value, Unit, Status`
+- `Timestamp` — ISO 8601
+- `Status` — `OVER` when value exceeds the danger threshold for its type (temp 38, pressure 70, vibration 3, flex 105000, strain 20000), otherwise `OK`
+
+**Postman:**
+- Method: `GET` (no body). To inspect the file: **Send → Save Response → Save to a file**.
+- URL (filtered): `http://localhost:3000/sensor-reading/export?date=2026-06-25&mannequin_id=1&sensorType=pressure&location=right_arm`
+- URL (whole mannequin for that day): `http://localhost:3000/sensor-reading/export?date=2026-06-25&mannequin_id=1`
+
+**Sample CSV (first rows):**
+```csv
+"No","Timestamp","Mannequin","Location","Sensor Type","Sensor No","Value","Unit","Status"
+"1","2026-06-25T01:12:03.000Z","Mannequin 1","right arm","pressure","1","52.3","N","OK"
+"2","2026-06-25T01:12:08.000Z","Mannequin 1","right arm","pressure","2","81.7","N","OVER"
+```
+
+> **Routing note:** `export` is registered **above** the `:sensorTypeName` catch-all route, otherwise `"export"` would be parsed as a sensor type name.
+
+---
+
+### 6. GET `/sensor-reading/sensor-types`
 
 Get all available sensor types.
 
@@ -274,7 +387,7 @@ Get all available sensor types.
 
 ---
 
-### 6. GET `/sensor-reading/:sensorTypeName`
+### 7. GET `/sensor-reading/:sensorTypeName`
 
 Get paginated readings for a specific sensor type.
 
@@ -290,6 +403,7 @@ Get paginated readings for a specific sensor type.
 |-----------|------|----------|---------|-------------|
 | `page` | number | No | 1 | Page number |
 | `limit` | number | No | 10 | Items per page |
+| `sensorNumber` | number | No | - | Filter by a single physical sensor point (= `sensor.externalId`) |
 | `location` | string | No | - | Filter by location |
 | `startDate` | string | No | - | Filter by start date (ISO 8601) |
 | `endDate` | string | No | - | Filter by end date (ISO 8601) |
@@ -868,6 +982,12 @@ setInterval(sendSensorData, 5000);
 | `DB_SYNCHRONIZATION` | `false` | Auto-sync schema (dev only) |
 | `DB_LOGGING` | `false` | Enable SQL logging (dev only) |
 | `PORT` | `3000` | Backend server port |
+| `JWT_SECRET` | — (**required**) | Secret for signing JWTs. Use a long random string; change before deploy. |
+| `JWT_EXPIRES_IN` | `12h` | Token lifetime (`zeit/ms` format, e.g. `8h`, `7d`). |
+| `ADMIN_STASRG_USERNAME` | `stas-rg` | Username for admin #1 (used by `seed:admin`). |
+| `ADMIN_STASRG_PASSWORD` | dev default | Password for admin #1. Set before deploy. |
+| `ADMIN_PINDAD_USERNAME` | `pindad` | Username for admin #2 (used by `seed:admin`). |
+| `ADMIN_PINDAD_PASSWORD` | dev default | Password for admin #2. Set before deploy. |
 
 ---
 
@@ -937,6 +1057,20 @@ npm run start:prod
 
 ## Changelog
 
+### v7.0 — JWT Authentication (2026-06-26)
+- 🔒 **Global JWT guard** — all endpoints now require `Authorization: Bearer <token>` except the explicit public ones (login, `POST /lora`, `GET /lora/health`, `POST /sensor-reading/batch`, `POST /sensor-reading`, `GET /`). Protected endpoints return `401` without a valid token.
+- ✅ **NEW** `POST /auth/login` (public) → `{ access_token, user }`; `GET /auth/me` (protected).
+- ✅ New `app_user` table (migration `AddUser`) + `npm run seed:admin` seeds 2 admins (`stas-rg`, `pindad`) with bcrypt-hashed passwords from env.
+- ✅ New env: `JWT_SECRET` (required), `JWT_EXPIRES_IN` (default `12h`), `ADMIN_*` seed creds.
+- ⚠️ Hardware ingest endpoints stay public (machine-to-machine). WebSocket `/sensor` is **not** gated yet (known gap).
+- ⚠️ Frontend must send the Bearer token on every data request; CSV export switched to a fetch+blob download (a plain `<a href>` can't carry the header).
+
+### v6.0 — Sensor Logs + CSV Export (2026-06-25)
+- ✅ **NEW** `GET /sensor-reading/export?date=YYYY-MM-DD` — download a full day of readings as CSV (`No, Timestamp, Mannequin, Location, Sensor Type, Sensor No, Value, Unit, Status`), UTF-8 BOM for Excel, `Status` flags `OVER` past danger thresholds. Powers the frontend **Logs page** Export button.
+- ✅ `GET /sensor-reading/paginated` and `GET /sensor-reading/:sensorTypeName` now accept `sensorNumber` (= `sensor.externalId`) to drill down to a **single physical sensor point**. Backward-compatible — omit it for the old behavior.
+- ✅ New DTO `export-sensor-reading-query.dto.ts`; `export` route registered above the `:sensorTypeName` catch-all.
+- ✅ Reuses the existing `idx_sensor_reading_sensor_timestamp` index — **no migration** this release.
+
 ### v5.0 — LoRa Format C Migration (2026-05-19) — BREAKING
 - 🔥 **BREAKING:** `POST /lora` now only accepts Format C (compact tuple `[locationId, sensorNumber, sensorTypeId, value]`). Format A (grouped) and Format B (flat) removed.
 - ✅ Payload size drastically reduced (numeric IDs replace string keys) — better for LoRa airtime.
@@ -985,5 +1119,5 @@ For issues or questions:
 
 ---
 
-**Last Updated:** May 19, 2026  
-**API Version:** 5.0 (LoRa Format C Migration)
+**Last Updated:** June 26, 2026  
+**API Version:** 7.0 (JWT Authentication)

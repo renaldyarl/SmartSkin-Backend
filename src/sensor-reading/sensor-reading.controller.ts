@@ -18,17 +18,22 @@ import { BatchCreateSensorReadingDto } from '../dto/batch-create-sensor-reading.
 import { PaginateSensorReadingQueryDto } from '../dto/paginate-sensor-reading-query.dto';
 import { ExportSensorReadingQueryDto } from '../dto/export-sensor-reading-query.dto';
 import { SensorRealtimeStats } from '../dto/sensor-realtime-stats.dto';
+import { Public } from '../auth/public.decorator';
 
 @Controller('sensor-reading')
 export class SensorReadingController {
   constructor(private readonly sensorReadingService: SensorReadingService) {}
 
+  // Public: hardware ingest (bulk) — machine-to-machine, no login.
+  @Public()
   @Post('batch')
   @UsePipes(new ValidationPipe({ transform: true }))
   createBatch(@Body() dto: BatchCreateSensorReadingDto) {
     return this.sensorReadingService.batchCreate(dto);
   }
 
+  // Public: legacy single-location hardware ingest, no login.
+  @Public()
   @Post()
   @UsePipes(new ValidationPipe({ transform: true }))
   create(@Body() dto: CreateSensorReadingDto) {

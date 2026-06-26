@@ -12,6 +12,7 @@ Get all sensor readings with pagination and optional filters.
 - `page` (optional, number): Page number (default: 1)
 - `limit` (optional, number): Items per page (default: 10)
 - `sensorType` (optional, string): Filter by sensor type (e.g., "temperature", "pressure", "vibration")
+- `sensorNumber` (optional, number): Filter by a single physical sensor point (= `sensor.externalId`)
 - `location` (optional, string): Filter by location (e.g., "right_arm", "left_leg")
 - `startDate` (optional, string): Filter by start date (ISO 8601 format)
 - `endDate` (optional, string): Filter by end date (ISO 8601 format)
@@ -64,6 +65,7 @@ Get sensor readings for a specific sensor type with pagination.
 **Query Parameters:**
 - `page` (optional, number): Page number (default: 1)
 - `limit` (optional, number): Items per page (default: 10)
+- `sensorNumber` (optional, number): Filter by a single physical sensor point (= `sensor.externalId`)
 - `location` (optional, string): Filter by location
 - `startDate` (optional, string): Filter by start date (ISO 8601 format)
 - `endDate` (optional, string): Filter by end date (ISO 8601 format)
