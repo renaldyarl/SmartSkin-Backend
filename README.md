@@ -1,163 +1,340 @@
 # SmartSkin Backend
 
-NestJS 11 + TypeORM + PostgreSQL backend for the SmartSkin mannequin sensor monitoring system. Receives sensor data (LoRa webhook / batch ingest), stores time-series readings, streams live updates over WebSocket, and serves a JWT-protected read API for the dashboard.
+Backend service for the SmartSkin mannequin sensor monitoring system. It receives device data through a LoRa webhook or REST API, stores sensor readings in PostgreSQL, provides APIs for the dashboard, and broadcasts real-time updates through Socket.IO.
 
----
+## Key features
 
-## Tech Stack
+- JWT-based administrator authentication
+- LoRa data ingestion from The Things Stack (TTS) and ChirpStack
+- Batch sensor ingestion for high-frequency write workloads
+- Support for two mannequins with 100 seeded sensors
+- Filtering, pagination, latest readings, and CSV export
+- Real-time updates through WebSocket
+- In-memory cache for locations, sensor types, and sensors
+- Database schema management with TypeORM migrations
 
-| Item | Value |
-|------|-------|
-| **Framework** | NestJS 11 |
-| **ORM** | TypeORM 0.3 |
-| **Database** | PostgreSQL |
-| **Realtime** | Socket.IO (`/sensor` namespace) |
-| **Auth** | JWT (`passport-jwt`) + bcrypt |
-| **Validation** | class-validator / class-transformer |
-| **Language** | TypeScript 5.7 |
+## Tech stack
 
----
+| Component | Technology |
+| --- | --- |
+| Framework | NestJS 11 |
+| Language | TypeScript 5.7 |
+| Database | PostgreSQL 16 |
+| ORM | TypeORM 0.3 |
+| Authentication | Passport JWT and bcrypt |
+| Real-time communication | Socket.IO |
+| Validation | class-validator and class-transformer |
+| Testing | Jest and Supertest |
 
-## Project Structure
+## Prerequisites
 
-```
-src/
-├── auth/                 # JWT login gate (guard, strategy, login/me, User entity)
-├── sensor/               # Sensor + SensorType entities, CRUD
-├── sensor-reading/       # Readings: batch ingest, pagination, latest, CSV export
-├── lora/                 # POST /lora webhook (Format C) + health + diagnostics
-├── websocket/            # SensorGateway — broadcasts sensor-batch-update
-├── cache/                # SensorCacheService — in-memory ref data (0 lookup queries)
-├── mannequin/            # Mannequin entity (2 mannequins)
-├── location/             # Location entity (9 locations)
-├── seeder/               # Dev seeder (locations, types, sensors) — non-prod only
-├── migrations/           # TypeORM migrations (schema is source-controlled)
-├── config/               # env validation
-├── dto/                  # request/response DTOs
-├── data-source.ts        # TypeORM CLI datasource (migrations)
-├── app.module.ts
-└── main.ts               # bootstrap (CORS, global ValidationPipe, WS adapter)
+Make sure the following tools are installed:
 
-scripts/
-├── run-seeder.ts         # npm run seeder
-└── seed-admins.ts        # npm run seed:admin
-```
+- Node.js 20 or later
+- npm
+- PostgreSQL, or Docker to run PostgreSQL
 
----
+## Local setup
 
-## Quick Start
+### 1. Install dependencies
 
 ```bash
 npm install
-
-# 1. Environment
-cp .env.example .env          # then edit values (DB creds, JWT_SECRET, admin passwords)
-
-# 2. Database (Postgres must be running and a DB matching DB_NAME must exist)
-docker-compose up -d postgres # optional — provides a Postgres container
-npm run migration:run         # create schema (sensors, readings, app_user, …)
-npm run seeder                # seed 2 mannequins, 9 locations, 5 types, 100 sensors
-npm run seed:admin            # seed the 2 admin accounts (stas-rg, pindad)
-
-# 3. Run
-npm run start:dev             # watch mode → http://localhost:3000
 ```
 
-WebSocket: `ws://localhost:3000/sensor` (event `sensor-batch-update`).
+### 2. Configure the environment
 
-> **Note:** `docker-compose.yml` creates a DB named `smart_skin`, while `.env.example` defaults `DB_NAME=hardware`. Make the two match (set `DB_NAME` or create the DB) before running migrations.
+Copy the environment template:
 
----
+```bash
+cp .env.example .env
+```
 
-## NPM Scripts
+Then update `.env` with the appropriate values. The minimum configuration for a local database started with Docker Compose is:
 
-| Script | What it does |
-|--------|--------------|
-| `npm run start:dev` | Start in watch mode |
-| `npm run start:prod` | Run the compiled build (`dist/src/main`) — run `npm run build` first |
-| `npm run build` | Compile to `dist/` (nest build) |
-| `npm run lint` | ESLint (autofix) |
-| `npm test` | Jest unit tests |
-| `npm run migration:run` | Apply pending migrations |
-| `npm run migration:revert` | Roll back the last migration |
-| `npm run migration:generate` | Generate a migration from entity diffs |
-| `npm run seeder` | Seed reference data (locations/types/sensors). **Dev only.** |
-| `npm run seed:admin` | Idempotent upsert of the 2 admin accounts (runs in any env) |
+```env
+APP_PORT=3000
 
----
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+DB_NAME=smart_skin
+DB_LOGGING=true
+DB_SYNCHRONIZATION=false
 
-## Environment Variables
+JWT_SECRET=replace-with-a-long-random-string
+JWT_EXPIRES_IN=12h
+```
 
-See [`.env.example`](.env.example) for the full template.
+Do not use the example `JWT_SECRET` or default passwords in production.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_PORT` | `3000` | HTTP/WS port |
-| `DB_HOST` | `localhost` | PostgreSQL host |
-| `DB_PORT` | `5432` | PostgreSQL port |
-| `DB_USERNAME` | `postgres` | DB user |
-| `DB_PASSWORD` | — | DB password |
-| `DB_NAME` | `hardware` | Database name |
-| `DB_LOGGING` | `true` | Log SQL (dev) |
-| `DB_SYNCHRONIZATION` | `false` | Auto-sync schema — keep `false`, use migrations |
-| `JWT_SECRET` | — (**required**) | Secret for signing JWTs — long random string |
-| `JWT_EXPIRES_IN` | `12h` | Token lifetime (`12h`, `8h`, `7d`, …) |
-| `ADMIN_STASRG_USERNAME` / `ADMIN_STASRG_PASSWORD` | `stas-rg` / — | Admin #1 seed creds |
-| `ADMIN_PINDAD_USERNAME` / `ADMIN_PINDAD_PASSWORD` | `pindad` / — | Admin #2 seed creds |
+### 3. Start PostgreSQL
 
----
+If you use Docker:
+
+```bash
+docker compose up -d postgres
+```
+
+The database created by `docker-compose.yml` is named `smart_skin`. Make sure `DB_NAME` in `.env` uses the same name. If PostgreSQL is installed locally, create a database and update the `DB_*` variables accordingly.
+
+### 4. Prepare the schema and seed data
+
+```bash
+npm run migration:run
+npm run seeder
+npm run seed:admin
+```
+
+`npm run seeder` creates two mannequins, nine locations, five sensor types, and 100 sensors. This seeder is only available when `NODE_ENV` is not set to `production`.
+
+`npm run seed:admin` creates or updates two administrator accounts. Configure their passwords in `.env` before running the command:
+
+```env
+ADMIN_STASRG_USERNAME=stas-rg
+ADMIN_STASRG_PASSWORD=use-a-strong-password
+ADMIN_PINDAD_USERNAME=pindad
+ADMIN_PINDAD_PASSWORD=use-a-strong-password
+```
+
+### 5. Start the application
+
+```bash
+npm run start:dev
+```
+
+The application is available at:
+
+- REST API: `http://localhost:3000`
+- Socket.IO namespace: `http://localhost:3000/sensor`
+
+Check that the server is running:
+
+```bash
+curl http://localhost:3000/
+```
 
 ## Authentication
 
-Most endpoints are gated by a **global JWT guard** (deny-by-default). Send `Authorization: Bearer <token>` on protected requests; missing/invalid → `401`.
+Most endpoints are protected by a global JWT guard. Obtain a token from the login endpoint:
 
-**Public (no token):** `POST /auth/login`, `POST /lora`, `GET /lora/health`, `POST /sensor-reading/batch`, `POST /sensor-reading`, `GET /`.
-**Protected:** everything else.
-
-```
-POST /auth/login   { "username": "stas-rg", "password": "..." }  → { access_token, user }
-GET  /auth/me      (Bearer token)                                 → current user
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"stas-rg","password":"use-a-strong-password"}'
 ```
 
-The 2 admin accounts are created by `npm run seed:admin` (passwords from env). Accounts live in the `app_user` table.
+Use the returned token to access protected endpoints:
 
-> ⚠️ The live WebSocket `/sensor` is **not** gated yet — see [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) changelog (known gap).
+```bash
+curl http://localhost:3000/auth/me \
+  -H 'Authorization: Bearer ACCESS_TOKEN'
+```
 
----
+The following endpoints are public:
 
-## API Endpoints (summary)
+- `GET /`
+- `POST /auth/login`
+- `POST /lora`
+- `GET /lora/health`
+- `POST /sensor-reading`
+- `POST /sensor-reading/batch`
 
-Full reference + Postman bodies: **[docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** (v7.0).
+All other HTTP endpoints require an `Authorization: Bearer <token>` header. The WebSocket connection does not currently use JWT authentication.
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/auth/login` | 🔓 | Get JWT |
-| GET | `/auth/me` | 🔒 | Current user |
-| POST | `/lora` | 🔓 | TTS/Chirpstack webhook (Format C) |
-| GET | `/lora/health` | 🔓 | "Backend alive" badge |
-| GET | `/lora/diagnostics` | 🔒 | TTS→BE latency / inter-arrival stats |
-| POST | `/sensor-reading/batch` | 🔓 | Hardware bulk ingest |
-| GET | `/sensor-reading/latest` | 🔒 | Latest value per sensor type |
-| GET | `/sensor-reading/paginated` | 🔒 | Paginated readings (filters incl. `sensorNumber`) |
-| GET | `/sensor-reading/export` | 🔒 | CSV export for a single day |
-| GET | `/sensor-reading/sensor-types` | 🔒 | List sensor types |
-| GET/POST | `/sensor` | 🔒 | List / create sensors |
+## API overview
 
----
+| Method | Endpoint | Access | Description |
+| --- | --- | --- | --- |
+| `POST` | `/auth/login` | Public | Sign in and obtain an access token |
+| `GET` | `/auth/me` | JWT | Get the current user's profile |
+| `POST` | `/lora` | Public | Receive a Format C LoRa webhook |
+| `GET` | `/lora/health` | Public | Get the data connection status for each mannequin |
+| `GET` | `/lora/diagnostics` | JWT | Get LoRa packet latency statistics |
+| `POST` | `/sensor-reading/batch` | Public | Store multiple sensor readings |
+| `POST` | `/sensor-reading` | Public | Store readings for one location |
+| `GET` | `/sensor-reading/latest` | JWT | Get the latest value for each sensor type |
+| `GET` | `/sensor-reading/paginated` | JWT | Get filtered and paginated readings |
+| `GET` | `/sensor-reading/:sensorTypeName` | JWT | Get readings by sensor type |
+| `GET` | `/sensor-reading/sensor-types` | JWT | List available sensor types |
+| `GET` | `/sensor-reading/export` | JWT | Export one day of readings as CSV |
+| `GET` | `/sensor-reading/debug/cache` | JWT | Inspect the reference-data cache |
+| `GET` | `/sensor` | JWT | List sensors |
+| `POST` | `/sensor` | JWT | Create a sensor |
 
-## Data Model
+See the [API documentation](docs/API_DOCUMENTATION.md) for detailed request bodies, responses, filters, and error codes.
 
-`mannequin (2)` → `sensor (50/mannequin = 100)` → `sensor_reading (time-series)`; each `sensor` references a `location (9)` + `sensor_type (5)`. `app_user` holds admin accounts. Schema is managed via **migrations** (`src/migrations/`), not `synchronize`.
+## Sending sensor data
 
-See the [Database Schema](docs/API_DOCUMENTATION.md#database-schema) and [Reference Data](docs/API_DOCUMENTATION.md#reference-data) sections for columns, sensor types, danger thresholds, and location/sensor mapping.
+The batch endpoint is recommended for devices because it stores multiple readings in one request.
 
----
+```bash
+curl -X POST http://localhost:3000/sensor-reading/batch \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mannequinId": 1,
+    "readings": [
+      {
+        "sensorType": "temperature",
+        "sensorNumber": 1,
+        "value": 36.5,
+        "location": "right_arm"
+      },
+      {
+        "sensorType": "pressure",
+        "sensorNumber": 1,
+        "value": 42.8,
+        "location": "back"
+      }
+    ]
+  }'
+```
 
-## Further Docs
+Example response:
 
-- [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) — full API reference (v7.0)
-- [docs/LORA_TTS_INTEGRATION.md](docs/LORA_TTS_INTEGRATION.md) — LoRa Format C + TTS decoder
-- [docs/SENSOR_READING_PAGINATION_API.md](docs/SENSOR_READING_PAGINATION_API.md) — pagination endpoints
-- [docs/PERFORMANCE_OPTIMIZATION.md](docs/PERFORMANCE_OPTIMIZATION.md) — caching, indexes, batch
-- [docs/DEBUG_GUIDE.md](docs/DEBUG_GUIDE.md) — debugging
-- `../LORA_DIAGNOSTICS.md` / `../SESSION_CHANGES_*.md` — diagnostics guide + changelogs
+```json
+{
+  "saved": 2,
+  "locations": ["right arm", "back"]
+}
+```
+
+Location names may use underscores, such as `right_arm`. The backend converts them to spaces before looking up the corresponding sensor.
+
+## LoRa payload format
+
+`POST /lora` accepts the compact tuple-based Format C payload:
+
+```json
+{
+  "m": 1,
+  "r": [
+    [1, 1, 1, 36.5],
+    [3, 1, 2, 42.8]
+  ]
+}
+```
+
+Each tuple uses the following order:
+
+```text
+[locationId, sensorNumber, sensorTypeId, value]
+```
+
+The payload may also be nested in a TTS `uplink_message.decoded_payload` envelope or a supported ChirpStack envelope. ID mappings and decoder examples are available in the [LoRa integration guide](docs/LORA_TTS_INTEGRATION.md).
+
+## WebSocket
+
+Use a Socket.IO client and connect to the `/sensor` namespace:
+
+```ts
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:3000/sensor');
+
+socket.on('sensor-batch-update', (readings) => {
+  console.log(readings);
+});
+```
+
+The `sensor-batch-update` event is emitted after data from a sensor-reading endpoint or LoRa webhook is stored successfully. Each item includes `sensorType`, `value`, `location`, `sensorNumber`, `timestamp`, and `mannequin_id`.
+
+## Data model
+
+```text
+mannequin
+    └── sensor ── sensor_type
+          │
+          ├────── location
+          │
+          └── sensor_reading
+
+app_user
+```
+
+The seeded reference data includes:
+
+- Sensor types: `temperature`, `pressure`, `vibration`, `flex`, and `strain`
+- Main locations: right/left arm, back, and right/left leg
+- Joint locations: right/left elbow and right/left knee
+- Main-location sensors use temperature, pressure, and vibration
+- Joint-location sensors use flex and strain
+
+## Project structure
+
+```text
+src/
+├── auth/             # Login, JWT strategy, guard, and users
+├── cache/            # Sensor reference-data cache
+├── config/           # Environment and TypeORM configuration
+├── dto/              # Request DTOs and validation
+├── location/         # Location entity
+├── lora/             # LoRa webhook, health, and diagnostics
+├── mannequin/        # Mannequin entity
+├── migrations/       # Database schema migration history
+├── seeder/           # Reference-data seeder
+├── sensor/           # Sensor entity and API
+├── sensor-reading/   # Ingestion, queries, statistics, and exports
+├── websocket/        # Socket.IO gateway
+├── app.module.ts
+├── data-source.ts
+└── main.ts
+
+scripts/
+├── run-seeder.ts
+└── seed-admins.ts
+```
+
+## npm scripts
+
+| Command | Description |
+| --- | --- |
+| `npm run start:dev` | Start the server in watch mode |
+| `npm run build` | Compile the application into `dist/` |
+| `npm run start:prod` | Run the compiled production build |
+| `npm run lint` | Run ESLint with automatic fixes |
+| `npm run format` | Format source code with Prettier |
+| `npm test` | Run unit tests |
+| `npm run test:e2e` | Run end-to-end tests |
+| `npm run test:cov` | Run tests and generate a coverage report |
+| `npm run migration:run` | Apply pending migrations |
+| `npm run migration:revert` | Revert the latest migration |
+| `npm run migration:generate -- src/migrations/MigrationName` | Generate a migration from entity changes |
+| `npm run seeder` | Seed SmartSkin reference data |
+| `npm run seed:admin` | Create or update administrator accounts |
+
+To run the application in production mode locally:
+
+```bash
+npm run build
+npm run start:prod
+```
+
+## Testing
+
+```bash
+npm test
+npm run test:e2e
+npm run test:cov
+```
+
+## Additional documentation
+
+- [API documentation](docs/API_DOCUMENTATION.md)
+- [LoRa and TTS integration](docs/LORA_TTS_INTEGRATION.md)
+- [Sensor-reading pagination API](docs/SENSOR_READING_PAGINATION_API.md)
+- [Performance optimization](docs/PERFORMANCE_OPTIMIZATION.md)
+- [Debugging guide](docs/DEBUG_GUIDE.md)
+
+## Deployment notes
+
+- Keep `DB_SYNCHRONIZATION=false` and apply migrations during deployment.
+- Use a strong and unique `JWT_SECRET` for every environment.
+- Supply administrator passwords through environment variables, not source code.
+- Restrict CORS origins and secure ingestion endpoints as required in production.
+- The WebSocket connection and device-ingestion endpoints are currently public.
+
+## License
+
+This project is private and does not currently provide an open-source license.
